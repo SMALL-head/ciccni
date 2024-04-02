@@ -1,6 +1,7 @@
 package ovs
 
 import (
+
 	"errors"
 	"time"
 
@@ -32,6 +33,10 @@ const (
 	openflowProtoVersion10 = "OpenFlow10"
 	// Openflow protocol version 1.3.
 	openflowProtoVersion13 = "OpenFlow13"
+)
+
+var (
+	errPortNotFound = NewTransactionError(errors.New("未查询到对应的port"), false)
 )
 
 // NewOVSDBConnectionUDS connects to the OVSDB server on the UNIX domain socket
@@ -571,4 +576,22 @@ func (br *OVSBridge) SetInterfaceMTU(name string, MTU int) error {
 	}
 
 	return nil
+}
+
+
+// GetPortUUIDByIfName 传入ifName返回对应的uuid。若Portlist中没有对应的ifName，则返回("", errPortNotFound)
+func (br *OVSBridge) GetPortUUIDByIfName(ifName string) (uuid string, err Error) {
+	portList, err := br.GetPortList()
+	if err != nil {
+		klog.Errorf("[ovs-client.go]-[GetPortUUIDByIfName]-获取PortList失败，err = %s", err)
+		return 
+	}
+	for _, each := range portList {
+		if each.IFName == ifName {
+			uuid = each.UUID
+			return
+		}
+	}
+	klog.Errorf("[ovs-client.go]-[GetPortUUIDByIfName]-PortList中没有名为%s的port，err = %s", ifName, err)
+	return "", errPortNotFound
 }

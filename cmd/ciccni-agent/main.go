@@ -2,21 +2,23 @@ package main
 
 import (
 	"flag"
+	"os"
+
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"os"
+	"k8s.io/klog"
 )
 
 var log = logrus.New()
 
 func main() {
-	cmd := NewAgentCommand()
+	cmd := newAgentCommand()
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func NewAgentCommand() (cmd *cobra.Command) {
+func newAgentCommand() (cmd *cobra.Command) {
 	opts := NewOptions()
 	cmd = &cobra.Command{
 		Use:  "antrea-agent",

@@ -1,5 +1,10 @@
 package main
 
+import (
+	"ciccni/pkg/ovs"
+	"fmt"
+)
+
 type AgentConfig struct {
 	CNISocket string `yaml:"cniSocket,omitempty"`
 	// clientConnection specifies the kubeconfig file and client connection settings for the agent
@@ -46,9 +51,20 @@ type AgentConfig struct {
 	EnableIPSecTunnel bool `yaml:"enableIPSecTunnel,omitempty"`
 }
 
-func run(opts *Options) {
+func run(opts *Options) error {
 	// 假定在各个机器上已经配置好了ovs
+	ovsdbConnection, err := ovs.NewOVSDBConnectionUDS("")
+	if err != nil {
+		return fmt.Errorf("error connecting OVSDB: %v", err)
+	}
+	defer ovsdbConnection.Close()
 
+	// 创建网桥
+	ovsBridgeClient := ovs.NewOVSBridge(opts.config.OVSBridge, opts.config.OVSDatapathType, ovsdbConnection)
+	err = ovsBridgeClient.Create()
+	if err != nil {
+		return fmt.Errorf("error create ovs bridge: %v", err)
+	}
 	// 启动rpc服务器
-
+	return nil
 }

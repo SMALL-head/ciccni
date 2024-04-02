@@ -1,4 +1,4 @@
-package cni
+package main
 
 import (
 	"ciccni/pkg/cni"
