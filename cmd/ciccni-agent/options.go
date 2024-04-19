@@ -96,5 +96,8 @@ func (o *Options) setDefaults() {
 	if o.config.ServiceCIDR == "" {
 		o.config.ServiceCIDR = defaultServiceCIDR
 	}
+	if o.config.OVSDatapathType == "" {
+		o.config.OVSDatapathType = "netdev"
+	}
 
 }

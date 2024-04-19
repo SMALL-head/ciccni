@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# 该文档需要将有关的配置文件拷贝至host上，以供k8s能够调用网络插件
+
+# Install ciccni configuration file
+install -m 644 /etc/ciccni/ciccni.conf /host/etc/cni/net.d/10-cicni.conf
+
+# Install ciccni binary file: host上的名字需要和10-ciccni.conf中的name完全一致
+install -m 755 /usr/local/bin/cni /host/opt/cni/bin/ciccni

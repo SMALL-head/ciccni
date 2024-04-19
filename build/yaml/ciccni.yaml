@@ -1,0 +1,196 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: ciccni
+  name: ciccni-agent
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: ciccni
+  name: ciccni-agent
+rules:
+  - apiGroups:
+      - ""
+    resources: ["nodes", "pods"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: ciccni
+  name: ciccni-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ciccni-agnet
+subjects:
+  - kind: ServiceAccount
+    name: ciccni-agent
+    namespace: kube-system
+---
+# configmap: 相关配置信息
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: ciccni
+  name: ciccni-config-cm
+  namespace: kube-system
+data:
+  ciccni-agent.conf: |
+    # Name of the OpenVSwitch bridge ciccni-agnet will create and use.
+    # Make sure it doesn't conflict with your existing OpenVSwitch bridges.
+    #ovsBridge: br-int
+
+    # Datapath type to use for the OpenVSwitch bridge created by Antrea. Supported values are:
+    # - system
+    # - netdev
+    # 'system' is the default value and corresponds to the kernel datapath. Use 'netdev' to run
+    # OVS in userspace mode. Userspace mode requires the tun device driver to be available.
+    #ovsDatapathType: system
+
+    # Name of the interface antrea-agent will create and use for host <--> pod communication.
+    # Make sure it doesn't conflict with your existing interfaces.
+    #hostGateway: gw0
+
+    # Encapsulation mode for communication between Pods across Nodes, supported values:
+    # - vxlan (default)
+    # - geneve
+    #tunnelType: vxlan
+
+    # Default MTU to use for the host gateway interface and the network interface of each Pod. If
+    # omitted, antrea-agent will default this value to 1450 to accomodate for tunnel encapsulate
+    # overhead.
+    #defaultMTU: 1450
+
+    # CIDR Range for services in cluster. It's required to support egress network policy, should
+    # be set to the same value as the one specified by --service-cluster-ip-range for kube-apiserver.
+    #serviceCIDR: 10.96.0.0/12
+  ciccni.conf: |
+    {
+        "cniVersion":"0.3.0",
+        "name": "ciccni",
+        "type": "ciccni",
+        "ipam": {
+            "type": "host-local"
+        }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app: cicccni
+    component: ciccni-agent
+  name: ciccni-agent
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: ciccni
+      component: ciccni-agent
+  template:
+    metadata:
+      labels:
+        app: ciccni
+        component: ciccni-agent
+    spec:
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      serviceAccountName: ciccni-agent
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+      initContainers:
+        - name: install-cni
+          command: ["install_cni"]
+          image: registry.cn-shanghai.aliyuncs.com/carl-zyc/ciccni-agent:amdv1
+          imagePullPolicy: Always
+          securityContext:
+            capabilities:
+              add:
+                - SYS_MODULE
+          volumeMounts:
+            - mountPath: /etc/ciccni/ciccni.conf # 在install_cni脚本中，会把这个config拷贝到下面的那个net.d目录里
+              name: ciccni-config
+              readOnly: true
+              subPath: ciccni.conf
+            - mountPath: /host/etc/cni/net.d
+              name: host-cni-conf
+            - mountPath: /host/opt/cni/bin
+              name: host-cni-bin
+      containers:
+        - name: ciccni-agent
+          args:
+            - --config
+            - /etc/ciccni/ciccni-agent.conf
+          command:
+            - ciccni-agent
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          image: registry.cn-shanghai.aliyuncs.com/carl-zyc/ciccni-agent:amdv1
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true # agent以root权限运行
+          volumeMounts:
+            - mountPath: /etc/ciccni/ciccni-agent.conf
+              name: ciccni-config
+              readOnly: true
+              subPath: ciccni-agent.conf
+            - mountPath: /var/run/ciccni # 主要包含host上的grpc调用所使用的unix域套接字
+              name: host-var-run-ciccni
+            - mountPath: /var/run/openvswitch
+              name: host-var-run-openvswitch
+              subPath: openvswitch
+            - mountPath: /var/lib/cni
+              name: host-var-run-ciccni
+              subPath: cni
+            - mountPath: /host/proc
+              name: host-proc
+              readOnly: true
+            - mountPath: /host/var/run/netns
+              mountPropagation: HostToContainer # netns中的命名空间是一种挂载行为，因此这里需要指定host上的挂载对容器可见
+              name: host-var-run-netns
+              readOnly: true
+      volumes:
+        - configMap:
+            name: ciccni-config-cm
+          name: ciccni-config
+        - hostPath:
+            path: /etc/cni/net.d
+          name: host-cni-conf
+        - hostPath:
+            path: /opt/cni/bin
+          name: host-cni-bin
+        - hostPath:
+            path: /proc
+          name: host-proc
+        - hostPath:
+            path: /var/run/netns
+          name: host-var-run-netns
+        - hostPath:
+            path: /var/run/ciccni
+            type: DirectoryOrCreate
+          name: host-var-run-ciccni
+        - hostPath:
+            path: /var/run/openvswitch
+          name: host-var-run-openvswitch

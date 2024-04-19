@@ -735,3 +735,17 @@ func (c *client) DeletePolicyRuleAddress(ruleID uint32, addrType types.AddressTy
 	// Remove policyRuleConjunction to actions of conjunctive match using specific address.
 	return clause.deleteAddrFlows(addrType, addresses)
 }
+
+// parseDstIP 可以传入普通ip，也可以传入cidr。若解析失败（两种类型都无法解析成功），则返回err；
+// 若解析成功，若为ipNet类型，则返回的bool值为true，若为IP类型，则返回的bool类型为false
+func parseDstIP(dstIPNet string) (*net.IP, *net.IPNet, bool, error) {
+	ip, ipNet, err := net.ParseCIDR(dstIPNet)
+	if err != nil {
+		ip = net.ParseIP(dstIPNet)
+		if ip == nil {
+			return nil, nil, false, err
+		}
+		return &ip, nil, false, nil
+	}
+	return nil, ipNet, true, nil
+}

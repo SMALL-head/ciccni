@@ -38,6 +38,9 @@ const (
 	ingressDefaultTable   binding.TableIDType = 100
 	l2ForwardingOutTable  binding.TableIDType = 110
 
+	// ciccni的新index，大小在200之上
+	allFlowTable binding.TableIDType = 200 
+
 	// Flow priority level
 	priorityHigh   = 210
 	priorityNormal = 200
@@ -48,6 +51,13 @@ const (
 	markTrafficFromTunnel  = 0
 	markTrafficFromGateway = 1
 	markTrafficFromLocal   = 2
+
+	// IPConnectionVxlan generalCache key: ip隧道所对应的cache key，每个节点应该有多个
+	IPConnectionVxlan string = "ipConnectionVxlan"
+	// ArpRequest generalCache key: arp请求所对应的流表项，这个流表项有多个转发动作
+	ArpRequest string = "arpOP1"
+	// ArpResponse generalCache key: arp请求所对应的流表项，这个流表项有多个转发动作
+	ArpResponse string = "arpOP2"
 )
 
 var (
@@ -110,7 +120,7 @@ type flowCategoryCache struct {
 type client struct {
 	bridge                                    binding.Bridge
 	pipeline                                  map[binding.TableIDType]binding.Table
-	nodeFlowCache, podFlowCache, serviceCache *flowCategoryCache // cache for corresponding deletions
+	nodeFlowCache, podFlowCache, serviceCache, generalCache *flowCategoryCache // cache for corresponding deletions
 	flowOperations                            FlowOperations
 	// policyCache is a map from PolicyRule ID to policyRuleConjunction. It's guaranteed that one policyRuleConjunction
 	// is processed by at most one goroutine at any given time.
@@ -253,6 +263,71 @@ func (c *client) l2ForwardOutputFlow() binding.Flow {
 		Action().OutputRegRange(int(portCacheReg), ofPortRegRange).
 		Done()
 }
+
+// ipTunFlow 生成对端隧道的flow表项
+func (c *client) ipTunFlow(dstIPNet net.IPNet, inPort uint32, tunnelDstIP net.IP) binding.Flow {
+	return c.pipeline[allFlowTable].BuildFlow().
+		Priority(priorityNormal).
+		MatchProtocol(binding.ProtocolIP).
+		MatchDstIPNet(dstIPNet).
+		MatchInPort(inPort).
+		Action().SetTunnelDst(tunnelDstIP).
+		Action().Normal().
+		Done()
+}
+
+// ipTunFlowWithoutInPort 生成对端隧道的dlow表项，match字段中不包含in_port字段
+func (c *client) ipTunFlowWithoutInPort(dstIPNet net.IPNet, tunnelDstIP net.IP) binding.Flow {
+	return c.pipeline[allFlowTable].BuildFlow().
+		Priority(priorityNormal).
+		MatchProtocol(binding.ProtocolIP).
+		MatchDstIPNet(dstIPNet).
+		Action().SetTunnelDst(tunnelDstIP).
+		Action().Normal().
+		Done()
+}
+
+
+func (c *client) localIPFlowWithIPnet(ipnet net.IPNet) binding.Flow {
+	return c.pipeline[allFlowTable].BuildFlow().
+	Priority(priorityNormal).
+	MatchProtocol(binding.ProtocolIP).
+	MatchDstIPNet(ipnet).
+	Action().Normal().
+	Done()
+}
+func (c *client) localIPFlowWithIP(ip net.IP) binding.Flow {
+	return c.pipeline[allFlowTable].BuildFlow().
+	Priority(priorityNormal).
+	MatchProtocol(binding.ProtocolIP).
+	MatchDstIP(ip).
+	Action().Normal().
+	Done()
+}
+
+func (c *client) ipTunFlowMatchIP(dstIPNet net.IP, inPort uint32, tunnelDstIP net.IP) binding.Flow {
+	return c.pipeline[allFlowTable].BuildFlow().
+		Priority(priorityNormal).
+		MatchProtocol(binding.ProtocolIP).
+		MatchDstIP(dstIPNet).
+		MatchInPort(inPort).
+		Action().SetTunnelDst(tunnelDstIP).
+		Action().Normal().
+		Done()
+}
+
+// arpFlow 分别构建了arp请求和arp响应两个flow
+func (c *client) arpFlow(dstIPNets []*net.IP) (arpReqFlow binding.Flow, arpRespFlow binding.Flow) {
+	buildForReq := c.pipeline[allFlowTable].BuildFlow().Priority(priorityNormal).MatchProtocol(binding.ProtocolARP).MatchARPOp(1)
+	buildForResp := c.pipeline[allFlowTable].BuildFlow().Priority(priorityNormal).MatchProtocol(binding.ProtocolARP).MatchARPOp(2)
+	for _ , dstIPNet := range dstIPNets {
+		buildForReq.Action().SetTunnelDst(*dstIPNet).Action().Normal()
+		buildForResp.Action().SetTunnelDst(*dstIPNet).Action().Normal()
+	}
+
+	return buildForReq.Done(), buildForResp.Done()
+}
+
 
 // l3FlowsToPod generates the flow to rewrite MAC if the packet is received from tunnel port and destined for local Pods.
 func (c *client) l3FlowsToPod(localGatewayMAC net.HardwareAddr, podInterfaceIP net.IP, podInterfaceMAC net.HardwareAddr) binding.Flow {
@@ -458,23 +533,13 @@ func NewClient(bridgeName string) Client {
 	c := &client{
 		bridge: bridge,
 		pipeline: map[binding.TableIDType]binding.Table{
-			classifierTable:       bridge.CreateTable(classifierTable, spoofGuardTable, binding.TableMissActionNext),
-			spoofGuardTable:       bridge.CreateTable(spoofGuardTable, conntrackTable, binding.TableMissActionDrop),
-			conntrackTable:        bridge.CreateTable(conntrackTable, conntrackStateTable, binding.TableMissActionNext),
-			conntrackStateTable:   bridge.CreateTable(conntrackStateTable, dnatTable, binding.TableMissActionNext),
-			dnatTable:             bridge.CreateTable(dnatTable, egressRuleTable, binding.TableMissActionNext),
-			l3ForwardingTable:     bridge.CreateTable(l3ForwardingTable, l2ForwardingCalcTable, binding.TableMissActionNext),
-			l2ForwardingCalcTable: bridge.CreateTable(l2ForwardingCalcTable, ingressRuleTable, binding.TableMissActionNext),
-			l2ForwardingOutTable:  bridge.CreateTable(l2ForwardingOutTable, binding.LastTableID, binding.TableMissActionDrop),
-			arpResponderTable:     bridge.CreateTable(arpResponderTable, binding.LastTableID, binding.TableMissActionDrop),
-			egressRuleTable:       bridge.CreateTable(egressRuleTable, egressDefaultTable, binding.TableMissActionNext),
-			egressDefaultTable:    bridge.CreateTable(egressDefaultTable, l3ForwardingTable, binding.TableMissActionNext),
-			ingressRuleTable:      bridge.CreateTable(ingressRuleTable, ingressDefaultTable, binding.TableMissActionNext),
-			ingressDefaultTable:   bridge.CreateTable(ingressDefaultTable, l2ForwardingOutTable, binding.TableMissActionNext),
+			// l2ForwardingOutTable:  bridge.CreateTable(l2ForwardingOutTable, binding.LastTableID, binding.TableMissActionDrop),
+			allFlowTable : bridge.CreateTable(allFlowTable, binding.LastTableID, binding.TableMissActionDrop),
 		},
 		nodeFlowCache:            newFlowCategoryCache(),
 		podFlowCache:             newFlowCategoryCache(),
 		serviceCache:             newFlowCategoryCache(),
+		generalCache: 			  newFlowCategoryCache(), // cache，为了进行modify和delete用的
 		policyCache:              sync.Map{},
 		globalConjMatchFlowCache: map[string]*conjMatchFlowContext{},
 	}

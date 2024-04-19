@@ -21,8 +21,8 @@ func main() {
 func newAgentCommand() (cmd *cobra.Command) {
 	opts := NewOptions()
 	cmd = &cobra.Command{
-		Use:  "antrea-agent",
-		Long: "The Antrea agent runs on each node.",
+		Use:  "ciccni-agent",
+		Long: "The ciccni agent runs on each node.",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := opts.complete(args); err != nil {
 

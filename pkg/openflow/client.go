@@ -72,6 +72,16 @@ type Client interface {
 	// dropTable.
 	InstallPolicyRuleFlows(rule *types.PolicyRule) error
 
+	// InstallTunFlow 加入一条构建vxlan隧道的flow。dstIPNet指定了
+	InstallTunFlow(dstIPNet string, inPort uint32, tunnelDstIP net.IP) error
+
+	InstallARPFlow(tunDsts []string) error
+
+	// InstallLocalIPFlow 安装本地的ip流表规则
+	InstallLocalIPFlow(nodename string, localIP string) error
+
+	UninstallTunFlow() error
+
 	// UninstallPolicyRuleFlows removes the Openflow entry relevant to the specified NetworkPolicy rule.
 	// UninstallPolicyRuleFlows will do nothing if no Openflow entry for the rule is installed.
 	UninstallPolicyRuleFlows(ruleID uint32) error
@@ -151,6 +161,77 @@ func (c *client) InstallNodeFlows(hostname string, localGatewayMAC net.HardwareA
 
 func (c *client) UninstallNodeFlows(hostname string) error {
 	return c.deleteFlows(c.nodeFlowCache, hostname)
+}
+
+func (c *client) InstallTunFlow(dstIPNetString string, inPort uint32, tunnelDstIP net.IP) error {
+
+	dstIP, dstIPNet, t, err := parseDstIP(dstIPNetString)
+	if err != nil { // 无法解析传入的ip地址
+		return err
+	}
+	var flows []binding.Flow
+	if t { // t == true -> IPNet类型
+		flows = []binding.Flow{
+			c.ipTunFlowWithoutInPort(*dstIPNet, tunnelDstIP),
+		}	
+	} else { // t == flase -> IP类型
+		flows = []binding.Flow{
+			c.ipTunFlowMatchIP(*dstIP, inPort, tunnelDstIP),
+		}
+	}
+	
+	return c.addMissingFlows(c.generalCache, IPConnectionVxlan, flows)
+}
+
+func (c *client) UninstallTunFlow() error {
+	return c.deleteFlows(c.generalCache, IPConnectionVxlan)
+}
+
+func (c *client) InstallARPFlow(dstIPNets []string) error {
+	var ipNets []*net.IP
+
+	for _, ipStr := range dstIPNets {
+		ip := net.ParseIP(ipStr)
+		ipNets = append(ipNets, &ip)
+	}
+	arpReq, arpResp := c.arpFlow(ipNets)
+	ReqFlows := []binding.Flow{
+		arpReq,
+	}
+	RespFlows := []binding.Flow{
+		arpResp,
+	}
+	err := c.addMissingFlows(c.generalCache, ArpRequest, ReqFlows)
+	if err != nil {
+		return err
+	}
+	err = c.addMissingFlows(c.generalCache, ArpResponse, RespFlows)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *client) InstallLocalIPFlow(nodeName string, localIP string) error {
+	ip, ipnet, isIPNet, err := parseDstIP(localIP)
+	var flows []binding.Flow
+	if err != nil {
+		return err
+	}
+	if isIPNet {
+		flows = []binding.Flow{
+			c.localIPFlowWithIPnet(*ipnet),
+		}
+	} else {
+		flows = []binding.Flow{
+			c.localIPFlowWithIP(*ip),
+		}
+	}
+	err = c.addMissingFlows(c.generalCache, nodeName+"-localIP", flows)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *client) InstallPodFlows(containerID string, podInterfaceIP net.IP, podInterfaceMAC, gatewayMAC net.HardwareAddr, ofPort uint32) error {
