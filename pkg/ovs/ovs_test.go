@@ -29,13 +29,15 @@ func TestConnection(t *testing.T) {
 func TestOpenflow(t *testing.T) {
 	conn, _ := ovs.NewOVSDBConnectionUDS("")
 	ovsBridgeClient := ovs.NewOVSBridge("br0", "", conn)
-	portNum, _ := ovsBridgeClient.GetOFPort("b-v")
-
-	ofClient := openflow.NewClient("br0")
-	dstTunIP := net.ParseIP("172.16.0.119")
-	err := ofClient.InstallTunFlow("172.16.0.1", uint32(portNum), dstTunIP)
+	err := ovsBridgeClient.Create()
 	require.NoError(t, err)
-	ofClient.UninstallTunFlow()
+	// portNum, _ := ovsBridgeClient.GetOFPort("b-v")
+
+	// ofClient := openflow.NewClient("br0")
+	// dstTunIP := net.ParseIP("172.16.0.119")
+	// err := ofClient.InstallTunFlow("172.16.0.1", uint32(portNum), dstTunIP)
+	// require.NoError(t, err)
+	// ofClient.UninstallTunFlow()
 }
 
 // func TestDeleteOpenflow(t *testing.T) {

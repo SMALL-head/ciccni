@@ -160,7 +160,6 @@ spec:
               name: host-var-run-ciccni
             - mountPath: /var/run/openvswitch
               name: host-var-run-openvswitch
-              subPath: openvswitch
             - mountPath: /var/lib/cni
               name: host-var-run-ciccni
               subPath: cni

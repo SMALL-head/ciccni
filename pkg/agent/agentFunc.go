@@ -89,6 +89,7 @@ func (i *Initializer) initNodeLocalConfig() error {
 		klog.Errorf("[initNodeLocalConfig]-解析PodCIDR错误, node.Spec.PodCIDR=%s, err=%v", node.Spec.PodCIDR, err)
 		return err
 	}
+	klog.Infof("[initNodeLocalConfig]-%s node对应的localSubnet为%v", nodeName, localSubnet)
 	// gatewayIP := ip.NextIP(localSubnet.IP.Mask(localSubnet.Mask))
 	i.nodeConfig = &NodeConfig{NodeName: nodeName, PodCIDR: localSubnet,}
 	return nil
@@ -100,10 +101,10 @@ func (i *Initializer) GetNodeConfig() *NodeConfig {
 
 func (i *Initializer) setUpOVSBridge() error {
 	// 1. 创建网桥
-	if err := i.ovsBridgeClient.Create() ; err != nil {
-		klog.Errorf("[agentFunc.go]-[setUpOVSBridge]-创建网桥失败, err=%v", err)
-		return err
-	}
+	// if err := i.ovsBridgeClient.Create() ; err != nil {
+	// 	klog.Errorf("[agentFunc.go]-[setUpOVSBridge]-创建网桥失败, err=%v", err)
+	// 	return err
+	// }
 
 	// 2. 构造ovs端口cache
 	if err := i.ifaceStore.Initialize(i.ovsBridgeClient, TunPortName); err != nil {
@@ -184,6 +185,7 @@ func (i *Initializer) constructArpOpenflow(nodeList *v1.NodeList) {
 func (i *Initializer) constructIPTunFlow(nodeList *v1.NodeList) {
 	for _, node := range nodeList.Items {
 		if node.Name == i.nodeConfig.NodeName { // 本地node只需要为ip进行nromal操作即可
+			klog.Infof("[constructIPTunFlow]-本地node ip流表安装")
 			i.ofClient.InstallLocalIPFlow(node.Name, i.nodeConfig.PodCIDR.String())
 		} else {
 			var nodeAddress net.IP
@@ -195,6 +197,7 @@ func (i *Initializer) constructIPTunFlow(nodeList *v1.NodeList) {
 			}
 			if nodeAddress != nil {
 				i.ofClient.InstallTunFlow(i.nodeConfig.PodCIDR.String(), 0, nodeAddress)
+				klog.Infof("[constructIPTunFlow]-node: %s ip流表安装", node.Name)
 			} else {
 				klog.Errorf("[agentFunc.go]-[constructIPTunFlow]-为node:%s安装ip流表规则出错", node.Name)
 			}
@@ -206,6 +209,7 @@ func (i *Initializer) constructIPTunFlow(nodeList *v1.NodeList) {
 func getNodeName() (string, error) {
 	nodeName := os.Getenv(NodeNameEnvKey)
 	if nodeName != "" {
+		klog.Infof("[getNodeName]-获取到nodeName: %s", nodeName)
 		return nodeName, nil
 	}
 	klog.Infof("[agentFunc.go]-[getNodeName]-无法通过%s获取nodeName，尝试使用hostname代替", NodeNameEnvKey)
