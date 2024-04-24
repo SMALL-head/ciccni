@@ -65,6 +65,11 @@ func (i *Initializer) Initialize() error {
 		return err
 	}
 
+	// 3. 初始flow安装
+	if err := i.setUpFlow(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -117,10 +122,6 @@ func (i *Initializer) setUpOVSBridge() error {
 		return err
 	}
 
-	// 4. 写入基本的openflow流表项
-	if err := i.initOpenFlow(); err != nil {
-		return err
-	}
 	return nil
 
 }
@@ -186,7 +187,10 @@ func (i *Initializer) constructIPTunFlow(nodeList *v1.NodeList) {
 	for _, node := range nodeList.Items {
 		if node.Name == i.nodeConfig.NodeName { // 本地node只需要为ip进行nromal操作即可
 			klog.Infof("[constructIPTunFlow]-本地node ip流表安装")
-			i.ofClient.InstallLocalIPFlow(node.Name, i.nodeConfig.PodCIDR.String())
+			err := i.ofClient.InstallLocalIPFlow(node.Name, i.nodeConfig.PodCIDR.String())
+			if err != nil {
+				klog.Errorf("[constructIPTunFlow]-本地node ip安装失败, podcidr = %s, err = %s", i.nodeConfig.PodCIDR.String(), err)
+			}
 		} else {
 			var nodeAddress net.IP
 			for _, address := range node.Status.Addresses {
@@ -196,13 +200,28 @@ func (i *Initializer) constructIPTunFlow(nodeList *v1.NodeList) {
 				}
 			}
 			if nodeAddress != nil {
-				i.ofClient.InstallTunFlow(i.nodeConfig.PodCIDR.String(), 0, nodeAddress)
 				klog.Infof("[constructIPTunFlow]-node: %s ip流表安装", node.Name)
+				err := i.ofClient.InstallTunFlow(node.Spec.PodCIDR, 0, nodeAddress)
+				if err != nil {
+					klog.Errorf("[constructIPTunFlow]-node %s ip安装失败, err = %s", nodeAddress, err)
+				}
 			} else {
 				klog.Errorf("[agentFunc.go]-[constructIPTunFlow]-为node:%s安装ip流表规则出错", node.Name)
 			}
 		}
 	}
+}
+
+func (i *Initializer) setUpFlow() error {
+	// 写入基本的openflow流表项
+	if err := i.ofClient.Initialize(); err != nil {
+		klog.Errorf("[Initialize]-ofClient.Initalize()失败， err = %s", err)
+		return err
+	}
+	if err := i.initOpenFlow(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // getNodeName 尝试通过环境变量获取nodeName。注意，这个环境变量应该通过yaml文件中进行配置

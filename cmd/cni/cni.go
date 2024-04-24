@@ -8,9 +8,9 @@ import (
 
 func main() {
 	skel.PluginMain(
-		cni.CmdAdd,
-		cni.CmdCheck,
-		cni.CmdDel,
+		cni.ActionAdd.Request,
+		cni.ActionCheck.Request,
+		cni.ActionDel.Request,
 		cniversion.PluginSupports("0.3.0"),
 		"cic-cni")
 }

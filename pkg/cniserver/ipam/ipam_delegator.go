@@ -21,7 +21,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/invoke"
 
-	types040 "github.com/containernetworking/cni/pkg/types/040"
+	current "github.com/containernetworking/cni/pkg/types/100"
 
 	"k8s.io/klog"
 )
@@ -34,7 +34,7 @@ type IPAMDelegator struct {
 	pluginType string
 }
 
-func (d *IPAMDelegator) Add(args *invoke.Args, networkConfig []byte) (*types040.Result, error) {
+func (d *IPAMDelegator) Add(args *invoke.Args, networkConfig []byte) (*current.Result, error) {
 	var success = false
 	defer func() {
 		if !success {
@@ -86,7 +86,7 @@ func delegateCommon(delegatePlugin string, exec invoke.Exec, cniPath string) (st
 	return pluginPath, exec, nil
 }
 
-func delegateWithResult(delegatePlugin string, networkConfig []byte, args *invoke.Args) (*types040.Result, error) {
+func delegateWithResult(delegatePlugin string, networkConfig []byte, args *invoke.Args) (*current.Result, error) {
 	ctx := context.TODO()
 	pluginPath, realExec, err := delegateCommon(delegatePlugin, defaultExec, args.Path)
 	if err != nil {
@@ -94,7 +94,7 @@ func delegateWithResult(delegatePlugin string, networkConfig []byte, args *invok
 	}
 
 	res, err := invoke.ExecPluginWithResult(ctx, pluginPath, networkConfig, args, realExec)
-	res040, err := types040.NewResultFromResult(res)
+	res040, err := current.NewResultFromResult(res)
 	return res040, err
 }
 

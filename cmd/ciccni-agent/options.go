@@ -2,9 +2,10 @@ package main
 
 import (
 	"ciccni/pkg/cni"
+	"os"
+
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v2"
-	"os"
 )
 
 const (
@@ -96,8 +97,8 @@ func (o *Options) setDefaults() {
 	if o.config.ServiceCIDR == "" {
 		o.config.ServiceCIDR = defaultServiceCIDR
 	}
-	if o.config.OVSDatapathType == "" {
-		o.config.OVSDatapathType = "netdev"
-	}
+	// if o.config.OVSDatapathType == "" {
+	// 	o.config.OVSDatapathType = "netdev"
+	// }
 
 }

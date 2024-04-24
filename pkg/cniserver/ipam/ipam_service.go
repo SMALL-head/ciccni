@@ -20,7 +20,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/invoke"
 
-	types040 "github.com/containernetworking/cni/pkg/types/040"
+	current "github.com/containernetworking/cni/pkg/types/100"
 )
 
 var ipamDrivers map[string]IPAMDriver
@@ -34,7 +34,7 @@ type IPAMConfig struct {
 //go:generate mockgen -copyright_file ../../../../hack/boilerplate/license_header.raw.txt -destination testing/mock_ipam.go -package=testing github.com/vmware-tanzu/antrea/pkg/agent/cniserver/ipam IPAMDriver
 
 type IPAMDriver interface {
-	Add(args *invoke.Args, networkConfig []byte) (*types040.Result, error)
+	Add(args *invoke.Args, networkConfig []byte) (*current.Result, error)
 	Del(args *invoke.Args, networkConfig []byte) error
 	Check(args *invoke.Args, networkConfig []byte) error
 }
@@ -59,7 +59,7 @@ func argsFromEnv(cniArgs *pb.CniCmdArgs) *invoke.Args {
 	}
 }
 
-func ExecIPAMAdd(cniArgs *pb.CniCmdArgs, ipamType string) (*types040.Result, error) {
+func ExecIPAMAdd(cniArgs *pb.CniCmdArgs, ipamType string) (*current.Result, error) {
 	args := argsFromEnv(cniArgs)
 	driver := ipamDrivers[ipamType]
 	return driver.Add(args, cniArgs.NetworkConfiguration)

@@ -283,27 +283,8 @@ func (c *client) Initialize() error {
 	if err := c.bridge.Connect(maxRetryForOFSwitch); err != nil {
 		return err
 	}
-
-	for _, flow := range c.defaultFlows() {
-		if err := c.flowOperations.Add(flow); err != nil {
-			return fmt.Errorf("failed to install default flows: %v", err)
-		}
-	}
 	if err := c.flowOperations.Add(c.arpNormalFlow()); err != nil {
 		return fmt.Errorf("failed to install arp normal flow: %v", err)
-	}
-	if err := c.flowOperations.Add(c.l2ForwardOutputFlow()); err != nil {
-		return fmt.Errorf("failed to install l2 forward output flows: %v", err)
-	}
-	for _, flow := range c.connectionTrackFlows() {
-		if err := c.flowOperations.Add(flow); err != nil {
-			return fmt.Errorf("failed to install connection track flows: %v", err)
-		}
-	}
-	for _, flow := range c.establishedConnectionFlows() {
-		if err := flow.Add(); err != nil {
-			return fmt.Errorf("failed to install flows to skip established connections: %v", err)
-		}
 	}
 	return nil
 }

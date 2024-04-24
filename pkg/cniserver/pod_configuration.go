@@ -36,9 +36,9 @@ type k8sArgs struct {
 
 // setipVethPair 创建veth pair，一端放入容器中，另一端放入host中
 // 此处的netns应该为容器中的命名空间
-func setupVethPair(podName string, podNamespace string, ifname string, netns ns.NetNS, MTU int) (hostIface *types040.Interface, containerIface *types040.Interface, err error) {
+func setupVethPair(podName string, podNamespace string, ifname string, netns ns.NetNS, MTU int) (hostIface *types100.Interface, containerIface *types100.Interface, err error) {
 	hostVethName := generateContainerInterfaceName(podName, podNamespace)
-	hostIface, containerIface = &types040.Interface{}, &types040.Interface{}
+	hostIface, containerIface = &types100.Interface{}, &types100.Interface{}
 
 	if err := netns.Do(func(hostNS ns.NetNS) error {
 		hostVeth, containerVeth, err := ip.SetupVethWithName(ifname, hostVethName, MTU, "", hostNS)
@@ -102,27 +102,24 @@ func removeContainerLink(containerID string, containerNetns string, ifname strin
 		klog.Errorf("Failed to delete interface %s of container %s: %v", ifname, containerID, err)
 		return err
 	}
+	
 	return nil
 }
 
-func configureContainerAddr(netns ns.NetNS, containerInterface *types040.Interface, result *types040.Result) error {
+func configureContainerAddr(netns ns.NetNS, containerInterface *types100.Interface, result *types100.Result) error {
 	if err := netns.Do(func (_ ns.NetNS) error {
 		containerVeth, err := net.InterfaceByName(containerInterface.Name)
 		if err != nil {
 			klog.Errorf("[cniserver.go]-[configureContainerAddr]-Failed to find container interface %s in ns %s", containerInterface.Name, netns.Path())
 			return err
 		}
-		resultType100, err := types100.NewResultFromResult(result)
-		if err != nil {
-			klog.Errorf("[pod_configuration.go]-[configureContainerAddr]-将result转化为types100类型失败, err=%s", err)
-			return err
-		}
-		if err := ipam.ConfigureIface(containerInterface.Name, resultType100); err != nil {
+		if err := ipam.ConfigureIface(containerInterface.Name, result); err != nil {
 			klog.Errorf("[pod_configuration.go]-[configureContainerAddr]-ipam.ConfigureIface失败, err=%s", err)
 			return err
 		}
-
-		for _, ipc := range result.IPs {
+		result040Interface, _ := result.GetAsVersion("0.4.0")
+		result040, _ := types040.GetResult(result040Interface)
+		for _, ipc := range result040.IPs {
 			if ipc.Version == "4" {
 				arping.GratuitousArpOverIface(ipc.Address.IP, *containerVeth)
 			}

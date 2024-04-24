@@ -29,7 +29,7 @@ func run(opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("error create ovs bridge: %v", err)
 	}
-	// 启动rpc服务器
+	
 	stopCh := make(chan struct{})
 
 	clientset, err2 := k8sclient.CreateClient()
@@ -42,6 +42,7 @@ func run(opts *Options) error {
 	ifaceStore := agent.NewInterfaceStore()
 
 	ofClient := openflow.NewClient(opts.config.OVSBridge)
+	
 
 	agentInitialize := agent.NewInitializer(clientset, ovsBridgeClient, ifaceStore, ofClient)
 	err2 = agentInitialize.Initialize()
@@ -53,8 +54,16 @@ func run(opts *Options) error {
 	nodeConfig := agentInitialize.GetNodeConfig()
 
 	// default CNISocket = /var/run/ciccni/cni.sock
-	cniRPCServer := cniserver.New(opts.config.CNISocket, nodeConfig, opts.config.DefaultMTU, opts.config.HostProcPathPrefix) 
-
+	// 启动rpc服务器
+	cniRPCServer := cniserver.New(
+		opts.config.CNISocket, 
+		nodeConfig,
+		opts.config.DefaultMTU, 
+		opts.config.HostProcPathPrefix,
+		ovsBridgeClient,
+		ofClient,
+		ifaceStore,
+	) 
 
 	go cniRPCServer.Run(stopCh)
 

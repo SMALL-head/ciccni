@@ -437,7 +437,7 @@ func (c *client) serviceCIDRDNATFlow(serviceCIDR *net.IPNet, gatewayOFPort uint3
 
 // arpNormalFlow generates the flow to response arp in normal way if no flow in arpResponderTable is matched.
 func (c *client) arpNormalFlow() binding.Flow {
-	return c.pipeline[arpResponderTable].BuildFlow().
+	return c.pipeline[allFlowTable].BuildFlow().
 		MatchProtocol(binding.ProtocolARP).Priority(priorityLow).
 		Action().Normal().Done()
 }
