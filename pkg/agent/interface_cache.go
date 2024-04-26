@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"ciccni/pkg/agent/util"
 	"ciccni/pkg/ovs"
+	"fmt"
 	"sync"
 
 	"net"
@@ -55,6 +57,7 @@ type InterfaceStore interface {
 	GetInterface(ifaceID string) (*InterfaceConfig, bool)
 	// GetContainerInterface(podName string, podNamespace string) (*InterfaceConfig, bool)
 	GetContainerInterfaceNum() int
+	GetContainerInterface(podName string, podNamespace string) (*InterfaceConfig, bool)
 	Len() int
 	GetInterfaceIDs() []string
 }
@@ -159,6 +162,26 @@ func BuildOVSPortExternalIDs(containerConfig *InterfaceConfig) map[string]interf
 	externalIDs[OVSExternalIDPodName] = containerConfig.PodName
 	externalIDs[OVSExternalIDPodNamespace] = containerConfig.PodNamespace
 	return externalIDs
+}
+
+func (i *interfaceCache) GetContainerInterface(podName string, podNamespace string) (*InterfaceConfig, bool) {
+	ovsPortName := util.GenerateContainerInterfaceName(podName, podNamespace)
+	i.RLock()
+	defer i.RUnlock()
+	iface, ok := i.cache[ovsPortName]
+	return iface, ok
+}
+
+func (interfaceConfig *InterfaceConfig) String() string {
+	return fmt.Sprintf(
+		`{ID = %s, IP = %s, PodName = %s, PodNamespace = %s, NetNS = %s, portUUID = %s}`,
+		interfaceConfig.ID,
+		interfaceConfig.IP,
+		interfaceConfig.PodName,
+		interfaceConfig.PodNamespace,
+		interfaceConfig.NetNS,
+		interfaceConfig.OVSPortConfig.PortUUID,
+	)
 }
 
 

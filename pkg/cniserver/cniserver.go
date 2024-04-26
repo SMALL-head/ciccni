@@ -94,6 +94,8 @@ func (cniServer *CniServer) CmdAdd(ctx context.Context, request *pb.CniCmdReques
 	result.IPs = ipamRes.IPs
 	result.Routes = ipamRes.Routes
 
+	// result.IPs中需要设置对应的interface指针
+	updateResultIfaceConfig(result)
 
 	podName := string(cniConfig.K8S_POD_NAME)
 	podNamespace := string(cniConfig.K8S_POD_NAMESPACE)
@@ -146,6 +148,7 @@ func (cniServer *CniServer) CmdDel(ctx context.Context, request *pb.CniCmdReques
 		cniServer.ofClient,
 		podName,
 		podNamespace,
+		cniServer.ifaceStore,
 		cniConfig.ContainerId,
 		netNS,
 		cniConfig.Ifname,
@@ -305,7 +308,14 @@ func configureInterface(
 	// }
 
 	// 6. 配置信息写入local cache中
-	// ifaceStore.AddInterface(containerConfig.IfaceName, containerConfig)
+	ofPort, err := ovsBridge.GetOFPort(ovsPortName)
+	if err != nil {
+		klog.Errorf("Failed to get of_port of OVS interface %s: %v", ovsPortName, err)
+		return err
+	}
+	containerConfig.OVSPortConfig = &agent.OVSPortConfig{PortUUID: portUUID, IfaceName: ovsPortName, OFPort: ofPort}
+	klog.Infof("[configureInterface]-缓存接口信息, key = %s, value = %s", containerConfig.IfaceName, containerConfig.String())
+	ifaceStore.AddInterface(containerConfig.IfaceName, containerConfig)
 	success = true
 	return nil
 }
@@ -315,6 +325,7 @@ func removeInterfaces(
 	ofCient openflow.Client,
 	podName string,
 	podNamepsace string,
+	ifaceStore agent.InterfaceStore,
 	containerID string,
 	containerNetns string,
 	ifname string,
@@ -325,6 +336,21 @@ func removeInterfaces(
 		}
 		klog.Infof("Target netns not specified, not removing veth pair")
 	}
+	interfaceConfig, found  := ifaceStore.GetContainerInterface(podName, podNamepsace)
+	if !found {
+		klog.Errorf("[removeInterfaces]-无法在local cache中找到port, containerID = %s", containerID)
+		return nil
+	}
+
+	portUUID := interfaceConfig.PortUUID
+	ovsPortName := interfaceConfig.IfaceName
+	klog.Infof("[removeInterfaces]-删除ovs port, UUID = %s, containerID = %s, ovsPortName = %s", portUUID, containerID, ovsPortName)
+	if err := ovsBridgeClient.DeletePort(portUUID); err != nil {
+		klog.Errorf("[removeInterfaces]-删除ovs port异常, portUUID = %s, portName = %s, err = %s", portUUID, ovsPortName, err)
+		return err
+	}
+	ifaceStore.DeleteInterface(ovsPortName)
+	klog.Infof("[removeInterfaces]-删除ovs port成功, containerID = %s", containerID)
 	return nil
 }
 
@@ -347,4 +373,12 @@ func parseContainerIP(IPs []*types100.IPConfig) (net.IP, error) {
 		}
 	}
 	return nil, errors.New("failed to find a valid IP address")
+}
+
+func updateResultIfaceConfig(result *types100.Result) {
+	for _, ipc := range result.IPs {
+		// result.Interfaces[0] is host interface, and result.Interfaces[1] is container interface
+		// 因此这里指定为1，表示该条IPConfig是container interface的
+		ipc.Interface = types100.Int(1)
+	}
 }

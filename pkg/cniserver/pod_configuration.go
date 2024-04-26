@@ -2,13 +2,10 @@ package cniserver
 
 import (
 	"ciccni/pkg/agent"
+	"ciccni/pkg/agent/util"
 	"ciccni/pkg/ovs"
-	"crypto/sha1"
-	"encoding/hex"
-	"fmt"
-	"io"
+	"encoding/json"
 	"net"
-	"strings"
 
 	"github.com/containernetworking/cni/pkg/types"
 	types040 "github.com/containernetworking/cni/pkg/types/040"
@@ -37,7 +34,7 @@ type k8sArgs struct {
 // setipVethPair 创建veth pair，一端放入容器中，另一端放入host中
 // 此处的netns应该为容器中的命名空间
 func setupVethPair(podName string, podNamespace string, ifname string, netns ns.NetNS, MTU int) (hostIface *types100.Interface, containerIface *types100.Interface, err error) {
-	hostVethName := generateContainerInterfaceName(podName, podNamespace)
+	hostVethName := util.GenerateContainerInterfaceName(podName, podNamespace)
 	hostIface, containerIface = &types100.Interface{}, &types100.Interface{}
 
 	if err := netns.Do(func(hostNS ns.NetNS) error {
@@ -57,24 +54,6 @@ func setupVethPair(podName string, podNamespace string, ifname string, netns ns.
 		return nil, nil, err
 	}
 	return hostIface, containerIface, nil
-}
-
-
-// Calculates a suitable interface name using the pod namespace and pod name. The output should be
-// deterministic (so that multiple calls to GenerateContainerInterfaceName with the same parameters
-// return the same value). The output should have length interfaceNameLength (15). The probability of
-// collision should be neglectable.
-func generateContainerInterfaceName(podName string, podNamespace string) string {
-	hash := sha1.New()
-	podID := fmt.Sprintf("%s/%s", podNamespace, podName)
-	io.WriteString(hash, podID)
-	podKey := hex.EncodeToString(hash.Sum(nil))
-	name := strings.Replace(podName, "-", "", -1)
-	if len(name) > podNamePrefixLength {
-		name = name[:podNamePrefixLength]
-	}
-	podKeyLength := interfaceNameLength - len(name) - len(containerKeyConnector)
-	return strings.Join([]string{name, podKey[:podKeyLength]}, containerKeyConnector)
 }
 
 func setupContainerOVSPort(ovsBridge ovs.OVSBridgeClient, containerConfig *agent.InterfaceConfig, ovsPortName string) (string, error) {
@@ -108,11 +87,14 @@ func removeContainerLink(containerID string, containerNetns string, ifname strin
 
 func configureContainerAddr(netns ns.NetNS, containerInterface *types100.Interface, result *types100.Result) error {
 	if err := netns.Do(func (_ ns.NetNS) error {
+		klog.Infof("[configureContainerAddr]-配置容器地址, containerInterface.Name=%s", containerInterface.Name)
 		containerVeth, err := net.InterfaceByName(containerInterface.Name)
 		if err != nil {
 			klog.Errorf("[cniserver.go]-[configureContainerAddr]-Failed to find container interface %s in ns %s", containerInterface.Name, netns.Path())
 			return err
 		}
+		resultJSON, _ := json.Marshal(result) // for logging
+		klog.Infof("[configureContainerAddr]-分配ip地址, type100.result=%s", resultJSON)
 		if err := ipam.ConfigureIface(containerInterface.Name, result); err != nil {
 			klog.Errorf("[pod_configuration.go]-[configureContainerAddr]-ipam.ConfigureIface失败, err=%s", err)
 			return err
