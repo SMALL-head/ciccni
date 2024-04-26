@@ -1,0 +1,17 @@
+# 开发调试过程
+
+## 打包
+
+修改完代码之后，执行下面的语句进行打包镜像，并上传至阿里云镜像仓库中
+
+```bash
+# 在项目根目录下进行
+make clean-bin bin # 编译文件
+docker build -t registry.cn-shanghai.aliyuncs.com/carl-zyc/ciccni-agent:{指定版本号} -f build/images/Dockerfile .
+docker push registry.cn-shanghai.aliyuncs.com/carl-zyc/ciccni-agent:{指定版本号}
+```
+
+# 部署方法
+
+拷贝 build/yaml/ciccni.yaml 文件，里面可能需要更改 ciccni-agent 的镜像版本号
+然后在集群中使用`kubectl apply -f ciccni.yaml`
