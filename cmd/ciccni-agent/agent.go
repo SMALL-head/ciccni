@@ -44,7 +44,7 @@ func run(opts *Options) error {
 	ofClient := openflow.NewClient(opts.config.OVSBridge)
 	
 
-	agentInitialize := agent.NewInitializer(clientset, ovsBridgeClient, ifaceStore, ofClient)
+	agentInitialize := agent.NewInitializer(clientset, ovsBridgeClient, ifaceStore, ofClient, opts.config.HostGateway, opts.config.DefaultMTU)
 	err2 = agentInitialize.Initialize()
 	if err2 != nil {
 		klog.Errorf("[agent.go]-[run]-初始化agent失败, err=%s", err)

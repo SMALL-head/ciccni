@@ -117,3 +117,29 @@ func DeleteInterface(containerNetns string, ifname string) error {
 		return nil
 	})
 }
+
+// GetDefaultInterface 获取默认的对外接口
+// 该方法通过查找route中拥有Gateway配置的接口，从而给定相关的返回接口
+func GetDefaultInterface() (res string, err error) {
+	routeList, _ := netlink.RouteList(nil, netlink.FAMILY_ALL)
+	index := -1
+	for _, route := range routeList {
+        if route.Gw != nil {
+			index = route.LinkIndex
+		}
+    }
+	if index == -1 {
+		return "", fmt.Errorf("未找到默认接口")
+	}
+	linkList, err := netlink.LinkList()
+	if err != nil {
+		return "", fmt.Errorf("获取LinkList失败, err = %s", err)
+	}
+	for _, link := range linkList {
+		if link.Attrs().Index == index {
+			res = link.Attrs().Name
+			break
+		}
+	}
+	return 
+}

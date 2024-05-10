@@ -1,13 +1,18 @@
 package agent
 
 import (
+	"ciccni/pkg/iptables"
+	"ciccni/pkg/link"
 	"ciccni/pkg/openflow"
 	"ciccni/pkg/ovs"
 	"context"
 	"fmt"
 	"net"
 	"os"
+	"time"
 
+	"github.com/containernetworking/plugins/pkg/ip"
+	"github.com/vishvananda/netlink"
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -18,15 +23,24 @@ import (
 const (
 	
 	NodeNameEnvKey = "NODE_NAME"
+	OutInterfaceEnvKey = "OUT_INTERFACE"
 	TunPortName = "tun0"
 	tunOFPort = 1
+	hostGatewayOFPort = 2
+	maxRetryForHostLink = 5
 )
 
 type NodeConfig struct {
 	NodeName string
 	PodCIDR *net.IPNet
 	Bridge string
+	*Gateway
+}
 
+type Gateway struct {
+	IP net.IP
+	MAC net.HardwareAddr
+	Name string
 }
 
 type Initializer struct {
@@ -35,14 +49,23 @@ type Initializer struct {
 	ovsBridgeClient ovs.OVSBridgeClient
 	ifaceStore InterfaceStore
 	ofClient openflow.Client
+	hostGateway string
+	MTU int
 } 
 
-func NewInitializer(k8sClient kubernetes.Interface, ovsBridgeClient ovs.OVSBridgeClient, ifaceStore InterfaceStore, ofCLient openflow.Client) *Initializer{
+func NewInitializer(k8sClient kubernetes.Interface, 
+					ovsBridgeClient ovs.OVSBridgeClient, 
+					ifaceStore InterfaceStore, 
+					ofCLient openflow.Client, 
+					hostGateway string, 
+					MTU int) *Initializer{
 	return &Initializer{
 		k8sClient: k8sClient,
 		ovsBridgeClient: ovsBridgeClient,
 		ifaceStore: ifaceStore,
 		ofClient: ofCLient,
+		hostGateway: hostGateway,
+		MTU: MTU,
 	}
 }
 
@@ -59,13 +82,27 @@ func (i *Initializer) Initialize() error {
 		return err
 	}
 
-	// 2. 初始化网桥
+	// 2. iptables规则安装
+	iptablesClient, err := iptables.NewClient(i.hostGateway)
+	if err != nil {
+		return fmt.Errorf("[Initialize] - error creating iptables client: %v", err)
+	}
+	outInterfaceName, err := link.GetDefaultInterface()
+	if err != nil {
+		klog.Errorf("[Initialize] - error getting default interface: %v", err)
+	}
+	if err := iptablesClient.SetUpRules(outInterfaceName); err != nil {
+		return fmt.Errorf("[Initialize] - error setting up iptables rules: %v", err)
+	}
+
+
+	// 3. 初始化网桥
 	klog.Infof("[agentFunc.go]-[Initialize]-初始化网桥")
 	if err := i.setUpOVSBridge(); err != nil {
 		return err
 	}
 
-	// 3. 初始flow安装
+	// 4. 初始flow安装
 	if err := i.setUpFlow(); err != nil {
 		return err
 	}
@@ -121,6 +158,10 @@ func (i *Initializer) setUpOVSBridge() error {
 	if err := i.setUpTunnelInterface(TunPortName); err != nil {
 		return err
 	}
+
+	// 4. 创建ovs中的网关接口
+	err := i.setupGatewayInterface()
+	if err != nil { return err }
 
 	return nil
 
@@ -239,4 +280,85 @@ func getNodeName() (string, error) {
 	return hostname, nil
 	
 }
+
+// setupGatewayInterface 在ovs上创建网关接口，同时向nodeConfig中写入网关接口相关的信息
+func (i *Initializer) setupGatewayInterface() error {
+	// 从cache中查看，若不存host Gateway port，则创建host Gateway port
+	gatewayIface, portExist := i.ifaceStore.GetInterface(i.hostGateway)
+	if !portExist {
+		klog.Infof("[setupGateway]-在ovs上创建gateway port %s", i.hostGateway)
+		gwPortUUID, err := i.ovsBridgeClient.CreateInternalPort(i.hostGateway, hostGatewayOFPort, nil)
+		if err != nil {
+			klog.Errorf("[setupGateway]-创建gateway port失败, gw name=%s, err=%s", i.hostGateway, err)
+			return err
+		}
+		gatewayIface = NewGatewayInterface(i.hostGateway)
+		gatewayIface.OVSPortConfig = &OVSPortConfig{IfaceName: i.hostGateway, PortUUID: gwPortUUID, OFPort: hostGatewayOFPort}
+		i.ifaceStore.AddInterface(i.hostGateway, gatewayIface)
+	} else {
+		klog.Infof("[setupGateway]-Gateway port %s 已经存在", i.hostGateway)
+	}
+	klog.Infof("[setupGateway]-setting gateway interface %s MTU to %d", i.hostGateway, i.MTU)
+	i.ovsBridgeClient.SetInterfaceMTU(i.hostGateway, i.MTU)
+
+	// 阻塞等待gateway port被创建：retry max 5 times with 1s delay each time to ensure the interface is ready
+	link, err := func() (netlink.Link, error) {
+		for retry := 0; retry < maxRetryForHostLink; retry++ {
+			if link, err := netlink.LinkByName(i.hostGateway); err != nil {
+				klog.Info("[setupGateway] - Not found host link for gateway %s, retry after 1s", i.hostGateway)
+				if _, ok := err.(netlink.LinkNotFoundError); ok {
+					time.Sleep(1 * time.Second)
+				} else {
+					return link, err
+				}
+			} else {
+				return link, nil
+			}
+		}
+		return nil, fmt.Errorf("[setupGateway] - link %s not found", i.hostGateway)
+	}()
+	if err != nil {
+		klog.Errorf("[setupGateway]-获取host link失败, err=%s", err)
+		return err
+	}
+
+	// gateway 激活
+	if err := netlink.LinkSetUp(link); err != nil {
+		klog.Errorf("[setupGateway]-Failed to set host link for %s up: %v", i.hostGateway, err)
+		return err
+	}
+
+	// 配置ip地址，网关相关信息写入nodeConfig
+	localSubnet := i.nodeConfig.PodCIDR
+	subnetID := localSubnet.IP.Mask(localSubnet.Mask)
+	gwIP := &net.IPNet{IP: ip.NextIP(subnetID), Mask: localSubnet.Mask}
+	gwAddr := &netlink.Addr{IPNet: gwIP, Label: ""}
+	gwMAC := link.Attrs().HardwareAddr
+	i.nodeConfig.Gateway = &Gateway{Name: i.hostGateway, IP: gwIP.IP, MAC: gwMAC}
+	gatewayIface.IP = gwIP.IP
+	gatewayIface.MAC = gwMAC
+
+	if addrs, err := netlink.AddrList(link, netlink.FAMILY_V4); err != nil {
+		klog.Errorf("Failed to query IPv4 address list for interface %s: %v", i.hostGateway, err)
+		return err
+	} else if addrs != nil {
+		for _, addr := range addrs {
+			klog.V(4).Infof("Found IPv4 address %s for interface %s", addr.IP.String(), i.hostGateway)
+			if addr.IP.Equal(gwAddr.IPNet.IP) {
+				klog.V(2).Infof("IPv4 address %s already assigned to interface %s", addr.IP.String(), i.hostGateway)
+				return nil
+			}
+		}
+	} else {
+		klog.V(2).Infof("Link %s has no configured IPv4 address", i.hostGateway)
+	}
+
+	klog.V(2).Infof("Adding address %v to gateway interface %s", gwAddr, i.hostGateway)
+	if err := netlink.AddrAdd(link, gwAddr); err != nil {
+		klog.Errorf("Failed to set gateway interface %s with address %v: %v", i.hostGateway, gwAddr, err)
+		return err
+	}
+	return nil
+}
+
 

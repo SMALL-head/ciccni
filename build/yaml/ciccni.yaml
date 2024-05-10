@@ -101,7 +101,7 @@ spec:
         component: ciccni-agent
     spec:
       dnsPolicy: ClusterFirstWithHostNet
-      hostNetwork: true
+      hostNetwork: true # 这样的话使用iptables命令修改的就是host主机上的规则了
       priorityClassName: system-node-critical
       serviceAccountName: ciccni-agent
       tolerations:

@@ -16,6 +16,7 @@ type InterfaceType uint8
 const (
 	ContainerInterface InterfaceType = iota
 	TunnelInterface 
+	GatewayInterface
 )
 
 const (
@@ -45,6 +46,11 @@ type InterfaceConfig struct {
 
 func NewTunnelInterface(tunnelName string) *InterfaceConfig {
 	return &InterfaceConfig{ID: tunnelName, Type: TunnelInterface}
+}
+
+func NewGatewayInterface(gatewayName string) *InterfaceConfig {
+	return &InterfaceConfig{ID: gatewayName, Type: GatewayInterface}
+
 }
 
 // InterfaceStore 缓存接口，支持add/delete/get操作

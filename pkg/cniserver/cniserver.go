@@ -16,6 +16,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/types"
 	types100 "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
@@ -95,7 +96,7 @@ func (cniServer *CniServer) CmdAdd(ctx context.Context, request *pb.CniCmdReques
 	result.Routes = ipamRes.Routes
 
 	// result.IPs中需要设置对应的interface指针
-	updateResultIfaceConfig(result)
+	updateResultIfaceConfig(result, cniServer.nodeConfig.Gateway.IP)
 
 	podName := string(cniConfig.K8S_POD_NAME)
 	podNamespace := string(cniConfig.K8S_POD_NAMESPACE)
@@ -375,10 +376,46 @@ func parseContainerIP(IPs []*types100.IPConfig) (net.IP, error) {
 	return nil, errors.New("failed to find a valid IP address")
 }
 
-func updateResultIfaceConfig(result *types100.Result) {
+func updateResultIfaceConfig(result *types100.Result, defaultV4Gateway net.IP) {
 	for _, ipc := range result.IPs {
+		// type IPConfig struct {
+		// 		Index into Result structs Interfaces list
+		//		Interface *int               ------> 这里需要配置一下为0还是1
+		//		Address   net.IPNet
+		//		Gateway   net.IP
+		//	}
+
+		
 		// result.Interfaces[0] is host interface, and result.Interfaces[1] is container interface
 		// 因此这里指定为1，表示该条IPConfig是container interface的
 		ipc.Interface = types100.Int(1)
+
+		klog.Infof("[uodateResultIfaceCOnfig]-ipc信息：%s", ipc.String())
+		if ipc.Gateway == nil {
+			ipn := ipc.Address
+			netID := ipn.IP.Mask(ipn.Mask)
+			ipc.Gateway = ip.NextIP(netID)
+		}
+
+		// 接下来我们就在result中看是否有默认路由了，
+		// 如果没有，则应该在result中加入默认路由，用于寻找网关（按照我我们初版本执行流程，这里肯定是没有的）
+		foundDefaultRoute := false
+		defaultRouteDst := "0.0.0.0/0"
+		if result.Routes != nil {
+			for _, route := range result.Routes {
+				if route.Dst.String() == defaultRouteDst {
+					foundDefaultRoute = true
+					break
+				}
+			}
+		} else {
+			result.Routes = []*types.Route{}
+		}
+
+		if !foundDefaultRoute {
+			_, defaultRouteDst, _ := net.ParseCIDR(defaultRouteDst)
+			result.Routes = append(result.Routes, &types.Route{Dst: *defaultRouteDst, GW: defaultV4Gateway})
+		}
+
 	}
 }
