@@ -83,7 +83,7 @@ func (i *Initializer) Initialize() error {
 	}
 
 	// 2. iptables规则安装
-	iptablesClient, err := iptables.NewClient(i.hostGateway)
+	iptablesClient, err := iptables.NewClient(i.hostGateway, i.nodeConfig.PodCIDR.String())
 	if err != nil {
 		return fmt.Errorf("[Initialize] - error creating iptables client: %v", err)
 	}
@@ -305,7 +305,7 @@ func (i *Initializer) setupGatewayInterface() error {
 	link, err := func() (netlink.Link, error) {
 		for retry := 0; retry < maxRetryForHostLink; retry++ {
 			if link, err := netlink.LinkByName(i.hostGateway); err != nil {
-				klog.Info("[setupGateway] - Not found host link for gateway %s, retry after 1s", i.hostGateway)
+				klog.Infof("[setupGateway] - Not found host link for gateway %s, retry after 1s", i.hostGateway)
 				if _, ok := err.(netlink.LinkNotFoundError); ok {
 					time.Sleep(1 * time.Second)
 				} else {

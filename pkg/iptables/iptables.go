@@ -16,9 +16,10 @@ const (
 type Client struct {
 	ipt *iptables.IPTables
 	hostGateway string
+	podCIDR string
 }
 
-func NewClient(hostGateway string) (*Client, error) {
+func NewClient(hostGateway string, podCIDR string) (*Client, error) {
 	ipt, err := iptables.New()
 	if err != nil {
 		return nil, fmt.Errorf("error creating IPTables instance: %v", err)
@@ -26,6 +27,7 @@ func NewClient(hostGateway string) (*Client, error) {
 	return &Client{
 		ipt: ipt,
 		hostGateway: hostGateway,
+		podCIDR: podCIDR,
 	}, nil
 }
 
@@ -46,7 +48,7 @@ type rule struct {
 func (c *Client) SetUpRules(outInterface string) error {
 	rules := []rule {
 		// iptables -t nat -A POSTROUTING -s 192.168.31.0/24 -o eno8303 -j MASQUERADE
-		{NATTable, PostRoutingChain, []string{"-i", c.hostGateway, "-o", outInterface}, MasqueradeTarget, nil,  ""},
+		{NATTable, PostRoutingChain, []string{"-s", c.podCIDR, "-o", outInterface}, MasqueradeTarget, nil,  "ciccni: for host gateway"},
 	}
 
 	// Ensure all the chains involved exist.

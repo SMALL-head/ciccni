@@ -100,5 +100,8 @@ func (o *Options) setDefaults() {
 	// if o.config.OVSDatapathType == "" {
 	// 	o.config.OVSDatapathType = "netdev"
 	// }
+	if o.config.DefaultMTU == 0 {
+		o.config.DefaultMTU = defaultMTUVxlan
+	}
 
 }
