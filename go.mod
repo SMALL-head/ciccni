@@ -5,6 +5,7 @@ go 1.22.0
 require (
 	github.com/TomCodeLV/OVSDB-golang-lib v0.0.0-20200116135253-9bbdfadcd881
 	github.com/containernetworking/cni v1.1.2
+	github.com/coreos/go-iptables v0.7.0
 	github.com/j-keck/arping v1.0.3
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.0
@@ -18,7 +19,6 @@ require (
 )
 
 require (
-	github.com/coreos/go-iptables v0.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
