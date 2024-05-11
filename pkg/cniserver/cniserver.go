@@ -420,7 +420,7 @@ func updateResultIfaceConfig(result *types100.Result, defaultV4Gateway net.IP) {
 			_, defaultRouteDst, _ := net.ParseCIDR(defaultRouteDst)
 			_, defaultClusterPodCIDRDst, _ := net.ParseCIDR("10.244.0.0/16")
 			result.Routes = append(result.Routes, &types.Route{Dst: *defaultRouteDst, GW: defaultV4Gateway})
-			result.Routes = append(result.Routes, &types.Route{Dst: *defaultClusterPodCIDRDst, GW: net.IP(defaultGW)})
+			result.Routes = append(result.Routes, &types.Route{Dst: *defaultClusterPodCIDRDst, GW: net.ParseIP(defaultGW)})
 		}
 
 	}

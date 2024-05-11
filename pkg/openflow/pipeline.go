@@ -39,7 +39,7 @@ const (
 	l2ForwardingOutTable  binding.TableIDType = 110
 
 	// ciccni的新index，大小在200之上
-	allFlowTable binding.TableIDType = 200 
+	allFlowTable binding.TableIDType = 0 
 
 	// Flow priority level
 	priorityHigh   = 210
