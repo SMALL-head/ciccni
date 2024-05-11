@@ -22,6 +22,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	defaultGW = "0.0.0.0"
+)
+
 type CniServer struct {
 	pb.UnimplementedCniServer
 	socketAddr string
@@ -414,7 +418,9 @@ func updateResultIfaceConfig(result *types100.Result, defaultV4Gateway net.IP) {
 
 		if !foundDefaultRoute {
 			_, defaultRouteDst, _ := net.ParseCIDR(defaultRouteDst)
+			_, defaultClusterPodCIDRDst, _ := net.ParseCIDR("10.244.0.0/16")
 			result.Routes = append(result.Routes, &types.Route{Dst: *defaultRouteDst, GW: defaultV4Gateway})
+			result.Routes = append(result.Routes, &types.Route{Dst: *defaultClusterPodCIDRDst, GW: net.IP(defaultGW)})
 		}
 
 	}
