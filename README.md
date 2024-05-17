@@ -5,7 +5,7 @@
 - 简化了流表项配置，只实现了 pod to pod, pod to external 的连通（也就是核心的容器网络连通部分），并且增加了大量的日志，可以方便用户进行调试，从而学习到 cni 的配置流程。
 - yaml 文件配置可以在更高版本的 k8s 上运行（v0.1.0 的 antrea 版本号稍低，我写的这份经过测试在 ubuntu+k8s_1.23.5 可以运行）
 
-跨主机的 pod 交互蚕蛹 vxlan 进行交互，pod to external 的通过 iptables 的 SNAT 进行交互。
+跨主机的 pod 交互采用 vxlan 进行交互，pod to external 的通过 iptables 的 SNAT 进行交互。
 
 # 环境安装
 
