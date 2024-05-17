@@ -15,7 +15,7 @@ metadata:
 rules:
   - apiGroups:
       - ""
-    resources: ["nodes", "pods"]
+    resources: ["nodes", "pods", "configmaps"]
     verbs: ["get", "watch", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -27,7 +27,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: ciccni-agnet
+  name: ciccni-agent
 subjects:
   - kind: ServiceAccount
     name: ciccni-agent
@@ -101,7 +101,7 @@ spec:
         component: ciccni-agent
     spec:
       dnsPolicy: ClusterFirstWithHostNet
-      hostNetwork: true # 这样的话使用iptables命令修改的就是host主机上的规则了
+      hostNetwork: true
       priorityClassName: system-node-critical
       serviceAccountName: ciccni-agent
       tolerations:
@@ -127,6 +127,12 @@ spec:
               name: host-cni-conf
             - mountPath: /host/opt/cni/bin
               name: host-cni-bin
+            - mountPath: /lib/modules
+              name: host-lib-modules
+              readOnly: true
+            - mountPath: /sbin/depmod
+              name: host-depmod
+              readOnly: true
       containers:
         - name: ciccni-agent
           args:
@@ -163,6 +169,8 @@ spec:
             - mountPath: /var/lib/cni
               name: host-var-run-ciccni
               subPath: cni
+            - mountPath: /opt/cni/bin
+              name: host-cni-bin
             - mountPath: /host/proc
               name: host-proc
               readOnly: true
@@ -193,3 +201,9 @@ spec:
         - hostPath:
             path: /var/run/openvswitch
           name: host-var-run-openvswitch
+        - hostPath:
+            path: /lib/modules
+          name: host-lib-modules
+        - hostPath:
+            path: /sbin/depmod
+          name: host-depmod

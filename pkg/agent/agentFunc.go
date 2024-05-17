@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"ciccni/pkg/agent/types"
 	"ciccni/pkg/iptables"
 	"ciccni/pkg/link"
 	"ciccni/pkg/openflow"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/vishvananda/netlink"
+	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -33,6 +35,7 @@ const (
 type NodeConfig struct {
 	NodeName string
 	PodCIDR *net.IPNet
+	ClusterPodCIDR *net.IPNet
 	Bridge string
 	*Gateway
 }
@@ -131,9 +134,25 @@ func (i *Initializer) initNodeLocalConfig() error {
 		klog.Errorf("[initNodeLocalConfig]-解析PodCIDR错误, node.Spec.PodCIDR=%s, err=%v", node.Spec.PodCIDR, err)
 		return err
 	}
+	// 获取大的集群pod_cidr
+	kubeadmConfig, err := i.k8sClient.CoreV1().ConfigMaps("kube-system").Get(context.TODO(), "kubeadm-config", metaV1.GetOptions{})
+	if err != nil {
+		klog.Errorf("[initNodeLocalConfig]-获取kubeadm-config错误, err=%v", err)
+		return err
+	}
+	clusterConfigData := kubeadmConfig.Data["ClusterConfiguration"]
+	var clusterConfig types.ClusterConfig
+	err = yaml.Unmarshal([]byte(clusterConfigData), &clusterConfig)
+	if err != nil {
+		klog.Errorf("[initNodeLocalConfig]-解析ClusterConfiguration错误, err=%v", err)
+		return err
+	}
+	_, clusterSubnet, err := net.ParseCIDR(clusterConfig.Networking.PodSubnet)
+	klog.Infof("[initNodeLocalConfig]-通过configmap获取到的clusterSubnet信息: %v", clusterSubnet)
+	
 	klog.Infof("[initNodeLocalConfig]-%s node对应的localSubnet为%v", nodeName, localSubnet)
 	// gatewayIP := ip.NextIP(localSubnet.IP.Mask(localSubnet.Mask))
-	i.nodeConfig = &NodeConfig{NodeName: nodeName, PodCIDR: localSubnet,}
+	i.nodeConfig = &NodeConfig{NodeName: nodeName, PodCIDR: localSubnet, ClusterPodCIDR: clusterSubnet}
 	return nil
 }
 
