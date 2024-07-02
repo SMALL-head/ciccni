@@ -8,17 +8,17 @@ import (
 )
 
 const (
-	NATTable = "nat"
+	NATTable    = "nat"
 	FilterTable = "filter"
 
-	AcceptTarget = "ACCEPT"
-	MarkTarget = "MARK"
+	AcceptTarget     = "ACCEPT"
+	MarkTarget       = "MARK"
 	MasqueradeTarget = "MASQUERADE"
 
-	ForwardChain = "FORWARD"
-	CICCNIForwardChain = "CICCNI-FORWARD"
+	ForwardChain           = "FORWARD"
+	CICCNIForwardChain     = "CICCNI-FORWARD"
 	CICCNIPostRoutingChain = "CICCNI-POSTROUTING"
-	PostRoutingChain = "POSTROUTING"
+	PostRoutingChain       = "POSTROUTING"
 )
 
 const (
@@ -26,9 +26,9 @@ const (
 )
 
 type Client struct {
-	ipt *iptables.IPTables
+	ipt         *iptables.IPTables
 	hostGateway string
-	podCIDR string
+	podCIDR     string
 }
 
 func NewClient(hostGateway string, podCIDR string) (*Client, error) {
@@ -37,9 +37,9 @@ func NewClient(hostGateway string, podCIDR string) (*Client, error) {
 		return nil, fmt.Errorf("error creating IPTables instance: %v", err)
 	}
 	return &Client{
-		ipt: ipt,
+		ipt:         ipt,
 		hostGateway: hostGateway,
-		podCIDR: podCIDR,
+		podCIDR:     podCIDR,
 	}, nil
 }
 
@@ -52,14 +52,14 @@ type rule struct {
 	// The parameters that make up a rule specification, eg: '-i ifaceName', '-o portName', '-p tcp'...
 	parameters []string
 	// The target of this rule. eg: ACCEPT, DROP...
-	target string
+	target        string
 	targetOptions []string
-	comment string
+	comment       string
 }
 
-// SetupRules 在主机上安装多条预置的iptables规则
+// SetUpRules 在主机上安装多条预置的iptables规则
 func (c *Client) SetUpRules(outInterface string) error {
-	rules := []rule {
+	rules := []rule{
 		// iptables -t filter -A FORWARD -j {CICCNIForwardChain}
 		{FilterTable, ForwardChain, nil, CICCNIForwardChain, nil, "ciccni: 跳转至CICCNI-FORWARD链"},
 
@@ -70,11 +70,11 @@ func (c *Client) SetUpRules(outInterface string) error {
 		{FilterTable, CICCNIForwardChain, []string{"-i", c.hostGateway, "!", "-o", c.hostGateway}, AcceptTarget, nil, "ciccni: 接收pod to External包"},
 		{FilterTable, CICCNIForwardChain, []string{"!", "-i", c.hostGateway, "-o", c.hostGateway}, AcceptTarget, nil, "ciccni: 接收external to pod traffic"},
 
-		// iptables -t nat -A POSTROUTING -j {CICCNIPostRoutingChain} -m comment --comment '跳转demo链'
+		// iptables -t nat -A POSTROUTING -j {CICCNIPostRoutingChain} -m comment --comment '跳转{CICCNIPostRoutingChain}链'
 		{NATTable, PostRoutingChain, nil, CICCNIPostRoutingChain, nil, "ciccni: 跳转至CICCNI-POSTROUTING链"},
 
 		// iptables -t nat -A {CICCNIPostRoutingChain} -m mark --mark 0x40/0x40 -j MASQUERADE -m comment --comment 'SNAT'
-		{NATTable, CICCNIPostRoutingChain, []string{"-m", "mark", "--mark", ExternalPkgMark}, MasqueradeTarget, nil,  "ciccni: for host gateway"},
+		{NATTable, CICCNIPostRoutingChain, []string{"-m", "mark", "--mark", ExternalPkgMark}, MasqueradeTarget, nil, "ciccni: for host gateway"},
 	}
 
 	// Ensure all the chains involved exist.
