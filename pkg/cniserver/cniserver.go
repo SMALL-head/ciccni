@@ -100,7 +100,7 @@ func (cniServer *CniServer) CmdAdd(ctx context.Context, request *pb.CniCmdReques
 	result.Routes = ipamRes.Routes
 
 	// result.IPs中需要设置对应的interface指针
-	updateResultIfaceConfig(result, cniServer.nodeConfig.Gateway.IP)
+	updateResultIfaceConfig(result, cniServer.nodeConfig.Gateway.IP, cniServer.nodeConfig.ClusterPodCIDR)
 
 	podName := string(cniConfig.K8S_POD_NAME)
 	podNamespace := string(cniConfig.K8S_POD_NAMESPACE)
@@ -380,7 +380,7 @@ func parseContainerIP(IPs []*types100.IPConfig) (net.IP, error) {
 	return nil, errors.New("failed to find a valid IP address")
 }
 
-func updateResultIfaceConfig(result *types100.Result, defaultV4Gateway net.IP) {
+func updateResultIfaceConfig(result *types100.Result, defaultV4Gateway net.IP, clusterPodCIDR *net.IPNet) {
 	for _, ipc := range result.IPs {
 		// type IPConfig struct {
 		// 		Index into Result structs Interfaces list
@@ -422,6 +422,8 @@ func updateResultIfaceConfig(result *types100.Result, defaultV4Gateway net.IP) {
 			result.Routes = append(result.Routes, &types.Route{Dst: *defaultRouteDst, GW: defaultV4Gateway})
 			result.Routes = append(result.Routes, &types.Route{Dst: *defaultClusterPodCIDRDst, GW: net.ParseIP(defaultGW)})
 		}
+
+		result.Routes = append(result.Routes, &types.Route{Dst: *clusterPodCIDR, GW: net.ParseIP("0.0.0.0")})
 
 	}
 }

@@ -8,15 +8,27 @@ import (
 )
 
 const (
-	NATTable = "nat"
+	NATTable    = "nat"
+	FilterTable = "filter"
+
+	AcceptTarget     = "ACCEPT"
+	MarkTarget       = "MARK"
 	MasqueradeTarget = "MASQUERADE"
-	PostRoutingChain = "POSTROUTING"
+
+	ForwardChain           = "FORWARD"
+	CICCNIForwardChain     = "CICCNI-FORWARD"
+	CICCNIPostRoutingChain = "CICCNI-POSTROUTING"
+	PostRoutingChain       = "POSTROUTING"
+)
+
+const (
+	ExternalPkgMark = "0x40/0x40"
 )
 
 type Client struct {
-	ipt *iptables.IPTables
+	ipt         *iptables.IPTables
 	hostGateway string
-	podCIDR string
+	podCIDR     string
 }
 
 func NewClient(hostGateway string, podCIDR string) (*Client, error) {
@@ -25,9 +37,9 @@ func NewClient(hostGateway string, podCIDR string) (*Client, error) {
 		return nil, fmt.Errorf("error creating IPTables instance: %v", err)
 	}
 	return &Client{
-		ipt: ipt,
+		ipt:         ipt,
 		hostGateway: hostGateway,
-		podCIDR: podCIDR,
+		podCIDR:     podCIDR,
 	}, nil
 }
 
@@ -40,15 +52,29 @@ type rule struct {
 	// The parameters that make up a rule specification, eg: '-i ifaceName', '-o portName', '-p tcp'...
 	parameters []string
 	// The target of this rule. eg: ACCEPT, DROP...
-	target string
+	target        string
 	targetOptions []string
-	comment string
+	comment       string
 }
 
+// SetUpRules 在主机上安装多条预置的iptables规则
 func (c *Client) SetUpRules(outInterface string) error {
-	rules := []rule {
-		// iptables -t nat -A POSTROUTING -s 192.168.31.0/24 -o eno8303 -j MASQUERADE
-		{NATTable, PostRoutingChain, []string{"-s", c.podCIDR, "-o", outInterface}, MasqueradeTarget, nil,  "ciccni: for host gateway"},
+	rules := []rule{
+		// iptables -t filter -A FORWARD -j {CICCNIForwardChain}
+		{FilterTable, ForwardChain, nil, CICCNIForwardChain, nil, "ciccni: 跳转至CICCNI-FORWARD链"},
+
+		// iptables -t filter -A {CICCNIForwardChain} -m comment --comment '标记位0x40/0x40' -i {gw名} ! -o {gw名} -j MARK --set-xmark 0x40/0x40
+		{FilterTable, CICCNIForwardChain, []string{"-i", c.hostGateway, "!", "-o", c.hostGateway}, MarkTarget, []string{"--set-xmark", ExternalPkgMark}, "ciccni: 标记位0x40/0x40"},
+
+		// iptables -A {CICCNIForwardChain} -m comment --comment '接收外部包' -i gw0 ! -o gw0 -j ACCEPT
+		{FilterTable, CICCNIForwardChain, []string{"-i", c.hostGateway, "!", "-o", c.hostGateway}, AcceptTarget, nil, "ciccni: 接收pod to External包"},
+		{FilterTable, CICCNIForwardChain, []string{"!", "-i", c.hostGateway, "-o", c.hostGateway}, AcceptTarget, nil, "ciccni: 接收external to pod traffic"},
+
+		// iptables -t nat -A POSTROUTING -j {CICCNIPostRoutingChain} -m comment --comment '跳转{CICCNIPostRoutingChain}链'
+		{NATTable, PostRoutingChain, nil, CICCNIPostRoutingChain, nil, "ciccni: 跳转至CICCNI-POSTROUTING链"},
+
+		// iptables -t nat -A {CICCNIPostRoutingChain} -m mark --mark 0x40/0x40 -j MASQUERADE -m comment --comment 'SNAT'
+		{NATTable, CICCNIPostRoutingChain, []string{"-m", "mark", "--mark", ExternalPkgMark}, MasqueradeTarget, nil, "ciccni: for host gateway"},
 	}
 
 	// Ensure all the chains involved exist.
