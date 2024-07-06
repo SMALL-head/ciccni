@@ -40,6 +40,8 @@ const (
 
 	// ciccni的新index，大小在200之上
 	allFlowTable binding.TableIDType = 0 
+	clusterFowardTable binding.TableIDType = 1
+	coreDnsSNATTTable binding.TableIDType = 2
 
 	// Flow priority level
 	priorityHigh   = 210
@@ -278,7 +280,7 @@ func (c *client) ipTunFlow(dstIPNet net.IPNet, inPort uint32, tunnelDstIP net.IP
 
 // ipTunFlowWithoutInPort 生成对端隧道的dlow表项，match字段中不包含in_port字段
 func (c *client) ipTunFlowWithoutInPort(dstIPNet net.IPNet, tunnelDstIP net.IP) binding.Flow {
-	return c.pipeline[allFlowTable].BuildFlow().
+	return c.pipeline[clusterFowardTable].BuildFlow().
 		Priority(priorityNormal).
 		MatchProtocol(binding.ProtocolIP).
 		MatchDstIPNet(dstIPNet).
@@ -287,9 +289,49 @@ func (c *client) ipTunFlowWithoutInPort(dstIPNet net.IPNet, tunnelDstIP net.IP) 
 		Done()
 }
 
+func (c *client) classifierDefaultFlow() binding.Flow {
+	return c.pipeline[classifierTable].BuildFlow().
+		Priority(priorityMiss).
+		Action().Resubmit(emptyPlaceholderStr, clusterFowardTable).
+		Done()
+}
+
+func (c *client) classifierTableFlowWithInPort(coreDNSPort uint32) binding.Flow {
+	return c.pipeline[classifierTable].BuildFlow().
+	Priority(priorityNormal).
+	MatchInPort(coreDNSPort).
+	Action().Resubmit(emptyPlaceholderStr, coreDnsSNATTTable).
+	Done()
+}
+
+func (c *client) coreDNSSNATDefaultFlow() binding.Flow {
+	return c.pipeline[coreDnsSNATTTable].BuildFlow().
+	Priority(priorityMiss).
+	Action().Resubmit(emptyPlaceholderStr, clusterFowardTable).
+	Done()
+}
+
+func (c *client) coreDnsSNATTFlowWithInPort(coreDNSPort uint32, serviceIP net.IP) binding.Flow {
+	return c.pipeline[coreDnsSNATTTable].BuildFlow().
+	Priority(priorityNormal).
+	MatchInPort(coreDNSPort).
+	MatchTPSrc(53).
+	MatchProtocol(binding.ProtocolUDP).
+	Action().SetSrcIP(serviceIP).
+	Action().Resubmit(emptyPlaceholderStr, clusterFowardTable).
+	Done()
+}
+
+func (c *client) clusterForwardDefaultFlow() binding.Flow {
+	return c.pipeline[clusterFowardTable].BuildFlow().
+	Priority(priorityMiss).
+	Action().Normal().
+	Done()
+
+}
 
 func (c *client) localIPFlowWithIPnet(ipnet net.IPNet) binding.Flow {
-	return c.pipeline[allFlowTable].BuildFlow().
+	return c.pipeline[clusterFowardTable].BuildFlow().
 	Priority(priorityNormal).
 	MatchProtocol(binding.ProtocolIP).
 	MatchDstIPNet(ipnet).
@@ -297,7 +339,7 @@ func (c *client) localIPFlowWithIPnet(ipnet net.IPNet) binding.Flow {
 	Done()
 }
 func (c *client) localIPFlowWithIP(ip net.IP) binding.Flow {
-	return c.pipeline[allFlowTable].BuildFlow().
+	return c.pipeline[clusterFowardTable].BuildFlow().
 	Priority(priorityNormal).
 	MatchProtocol(binding.ProtocolIP).
 	MatchDstIP(ip).
@@ -306,7 +348,7 @@ func (c *client) localIPFlowWithIP(ip net.IP) binding.Flow {
 }
 
 func (c *client) ipTunFlowMatchIP(dstIPNet net.IP, inPort uint32, tunnelDstIP net.IP) binding.Flow {
-	return c.pipeline[allFlowTable].BuildFlow().
+	return c.pipeline[clusterFowardTable].BuildFlow().
 		Priority(priorityNormal).
 		MatchProtocol(binding.ProtocolIP).
 		MatchDstIP(dstIPNet).
@@ -318,8 +360,8 @@ func (c *client) ipTunFlowMatchIP(dstIPNet net.IP, inPort uint32, tunnelDstIP ne
 
 // arpFlow 分别构建了arp请求和arp响应两个flow
 func (c *client) arpFlow(dstIPNets []*net.IP) (arpReqFlow binding.Flow, arpRespFlow binding.Flow) {
-	buildForReq := c.pipeline[allFlowTable].BuildFlow().Priority(priorityNormal).MatchProtocol(binding.ProtocolARP).MatchARPOp(1)
-	buildForResp := c.pipeline[allFlowTable].BuildFlow().Priority(priorityNormal).MatchProtocol(binding.ProtocolARP).MatchARPOp(2)
+	buildForReq := c.pipeline[clusterFowardTable].BuildFlow().Priority(priorityNormal).MatchProtocol(binding.ProtocolARP).MatchARPOp(1)
+	buildForResp := c.pipeline[clusterFowardTable].BuildFlow().Priority(priorityNormal).MatchProtocol(binding.ProtocolARP).MatchARPOp(2)
 	for _ , dstIPNet := range dstIPNets {
 		buildForReq.Action().SetTunnelDst(*dstIPNet).Action().Normal()
 		buildForResp.Action().SetTunnelDst(*dstIPNet).Action().Normal()
@@ -437,7 +479,7 @@ func (c *client) serviceCIDRDNATFlow(serviceCIDR *net.IPNet, gatewayOFPort uint3
 
 // arpNormalFlow generates the flow to response arp in normal way if no flow in arpResponderTable is matched.
 func (c *client) arpNormalFlow() binding.Flow {
-	return c.pipeline[allFlowTable].BuildFlow().
+	return c.pipeline[clusterFowardTable].BuildFlow().
 		MatchProtocol(binding.ProtocolARP).Priority(priorityLow).
 		Action().Normal().Done()
 }
@@ -534,7 +576,10 @@ func NewClient(bridgeName string) Client {
 		bridge: bridge,
 		pipeline: map[binding.TableIDType]binding.Table{
 			// l2ForwardingOutTable:  bridge.CreateTable(l2ForwardingOutTable, binding.LastTableID, binding.TableMissActionDrop),
-			allFlowTable : bridge.CreateTable(allFlowTable, binding.LastTableID, binding.TableMissActionDrop),
+			// allFlowTable : bridge.CreateTable(allFlowTable, binding.LastTableID, binding.TableMissActionDrop),
+			classifierTable:       bridge.CreateTable(classifierTable, clusterFowardTable, binding.TableMissActionNext),
+			clusterFowardTable:   bridge.CreateTable(clusterFowardTable, binding.LastTableID, binding.TableMissActionNormal),
+			coreDnsSNATTTable:     bridge.CreateTable(coreDnsSNATTTable, clusterFowardTable, binding.TableMissActionNext),
 		},
 		nodeFlowCache:            newFlowCategoryCache(),
 		podFlowCache:             newFlowCategoryCache(),

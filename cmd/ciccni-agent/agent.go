@@ -63,6 +63,7 @@ func run(opts *Options) error {
 		ovsBridgeClient,
 		ofClient,
 		ifaceStore,
+		clientset,
 	) 
 
 	go cniRPCServer.Run(stopCh)

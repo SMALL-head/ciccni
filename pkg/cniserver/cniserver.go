@@ -13,12 +13,15 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/containernetworking/cni/pkg/types"
 	types100 "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"google.golang.org/grpc"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 )
 
@@ -35,6 +38,7 @@ type CniServer struct {
 	ovsBridgeClient ovs.OVSBridgeClient
 	ofClient openflow.Client
 	ifaceStore agent.InterfaceStore
+	k8sClient kubernetes.Interface
 }
 
 func New(cniSocket string, 
@@ -43,7 +47,8 @@ func New(cniSocket string,
 	hostProcPathPrefix string,
 	ovsBridgeClient ovs.OVSBridgeClient,
 	ofClient openflow.Client,
-	ifaceStore agent.InterfaceStore) *CniServer {
+	ifaceStore agent.InterfaceStore,
+	k8sClient kubernetes.Interface) *CniServer {
 	return &CniServer{
 		socketAddr: cniSocket, 
 		nodeConfig: nodeConfig, 
@@ -52,6 +57,7 @@ func New(cniSocket string,
 		ovsBridgeClient: ovsBridgeClient,
 		ofClient: ofClient,
 		ifaceStore: ifaceStore,
+		k8sClient: k8sClient,
 	}
 }
 
@@ -107,10 +113,11 @@ func (cniServer *CniServer) CmdAdd(ctx context.Context, request *pb.CniCmdReques
 
 	klog.Infof("[CmdAdd]-configureInterface, netNS= %s", netNS)
 
-	// 容器内网络接口eth0配置ip地址
+	// 容器内网络接口eth0配置ip地址，如果pod为coreDNS，则还需要配置流表规则
 	err = configureInterface(cniServer.ovsBridgeClient, 
 		cniServer.ofClient,
 		cniServer.ifaceStore, 
+		cniServer.k8sClient,
 		podName, podNamespace, 
 		cniConfig.ContainerId,
 		netNS,
@@ -245,6 +252,7 @@ func configureInterface(
 	ovsBridge ovs.OVSBridgeClient, // 配置网桥端口
 	ofClient openflow.Client, // 为新加入的端口配置流表规则
 	ifaceStore agent.InterfaceStore, // 缓存新加入的接口
+	k8sClient kubernetes.Interface,
 	podName string,
 	podNamespace string,
 	containerID string, 
@@ -297,6 +305,42 @@ func configureInterface(
 			}
 		}
 	}()
+
+	// 3.2 coreDNS的流表规则写入
+	if strings.HasPrefix(podName, "coredns") && podNamespace == "kube-system" {
+		klog.Infof("[configureInterface]-coreDNS流表规则写入中...")
+		ofPortNum, err := ovsBridge.GetOFPort(ovsPortName)
+		if err != nil {
+			klog.Errorf("[configueInterface]-无法获取%s的ovs端口", ovsPortName)
+			return err
+		}
+		
+		// 如果为coredns，还需要获取coreDNS对应的serviceIP
+
+		// 直接通过client-go获取
+		kubedns, err2 := k8sClient.CoreV1().Services("kube-system").
+		Get(context.TODO(), "kube-dns", metav1.GetOptions{})
+		if err2 != nil {
+			klog.Errorf("[configureInterface]-无法通过clientset获取kube-dns服务, err = %s", err2)
+		}
+		serviceIPString := kubedns.Spec.ClusterIP
+		serviceIP := net.ParseIP(serviceIPString)
+
+		err2 = ofClient.InstallCorednsFlow(uint32(ofPortNum), containerID, serviceIP)
+		if err2 != nil {
+			klog.Errorf("[configureInterface]-创建coreDns流表规则失败, err=%s", err2)
+			return err
+		}
+
+		defer func() {
+			if !success {
+				err := ofClient.UninstallCorednsFlow(containerID)
+				if err != nil {
+					klog.Errorf("[configureInterface]-删除corednsflow失败, err = %s", err)
+				}
+			}
+		}()
+	}
 
 	// 4. 配置ip
 	klog.Infof("[cniserver.go]-[configureInterface]-4. 配置ip",)

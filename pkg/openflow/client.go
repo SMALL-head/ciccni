@@ -80,6 +80,12 @@ type Client interface {
 	// InstallLocalIPFlow 安装本地的ip流表规则
 	InstallLocalIPFlow(nodename string, localIP string) error
 
+	// InstallCorednsFlow 对于coreDNS的请求、响应，跳转至corednsSNAT表执行
+	InstallCorednsFlow(ofPortNum uint32, containerID string, serviceIP net.IP) error
+
+	// UninstallCorednsFlow 删除coreDNS流表
+	UninstallCorednsFlow(containerID string) error
+
 	UninstallTunFlow() error
 
 	// UninstallPolicyRuleFlows removes the Openflow entry relevant to the specified NetworkPolicy rule.
@@ -164,7 +170,6 @@ func (c *client) UninstallNodeFlows(hostname string) error {
 }
 
 func (c *client) InstallTunFlow(dstIPNetString string, inPort uint32, tunnelDstIP net.IP) error {
-
 	dstIP, dstIPNet, t, err := parseDstIP(dstIPNetString)
 	if err != nil { // 无法解析传入的ip地址
 		return err
@@ -234,6 +239,18 @@ func (c *client) InstallLocalIPFlow(nodeName string, localIP string) error {
 	return nil
 }
 
+func (c *client) InstallCorednsFlow(ofPortNum uint32, containerID string, serviceIP net.IP) error {
+	flows := []binding.Flow {
+		c.classifierTableFlowWithInPort(ofPortNum),
+		c.coreDnsSNATTFlowWithInPort(ofPortNum, serviceIP),
+	}
+	return c.addMissingFlows(c.podFlowCache, containerID, flows)
+}
+
+func (c *client) UninstallCorednsFlow(containerID string) error {
+	return c.deleteFlows(c.podFlowCache, containerID)
+}
+
 func (c *client) InstallPodFlows(containerID string, podInterfaceIP net.IP, podInterfaceMAC, gatewayMAC net.HardwareAddr, ofPort uint32) error {
 	flows := []binding.Flow{
 		c.podClassifierFlow(ofPort),
@@ -284,7 +301,16 @@ func (c *client) Initialize() error {
 		return err
 	}
 	if err := c.flowOperations.Add(c.arpNormalFlow()); err != nil {
-		return fmt.Errorf("failed to install arp normal flow: %v", err)
+		return fmt.Errorf("failed to install arp normal flow, err = %v", err)
+	}
+	if err := c.flowOperations.Add(c.classifierDefaultFlow()); err != nil {
+		return fmt.Errorf("failed to install classifier default resubmit flow, err = %s", err)
+	}
+	if err := c.flowOperations.Add(c.coreDNSSNATDefaultFlow()); err != nil {
+		return fmt.Errorf("failed to install coreDNSSNAT default resubmit flow, err = %s", err)
+	}
+	if err := c.flowOperations.Add(c.clusterForwardDefaultFlow()); err != nil {
+		return fmt.Errorf("failed to install clusterForward default normal flow, err = %s", err)
 	}
 	return nil
 }

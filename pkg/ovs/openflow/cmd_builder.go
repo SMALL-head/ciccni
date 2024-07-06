@@ -125,6 +125,10 @@ func (b *commandBuilder) MatchSCTPDstPort(port uint16) FlowBuilder {
 	return b.MatchField("sct_dst", fmt.Sprintf("%d", port))
 }
 
+func (b *commandBuilder) MatchTPSrc(port uint16) FlowBuilder {
+	return b.MatchField("tp_src", fmt.Sprintf("%d", port))
+}
+
 func (b *commandBuilder) MatchProtocol(protocol protocol) FlowBuilder {
 	b.matchers = append(b.matchers, strings.ToLower(protocol))
 	return b

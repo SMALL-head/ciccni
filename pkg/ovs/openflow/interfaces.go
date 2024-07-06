@@ -162,6 +162,7 @@ type FlowBuilder interface {
 	MatchTCPDstPort(port uint16) FlowBuilder
 	MatchUDPDstPort(port uint16) FlowBuilder
 	MatchSCTPDstPort(port uint16) FlowBuilder
+	MatchTPSrc(port uint16) FlowBuilder
 	Cookie(cookieID uint64) FlowBuilder
 	Action() Action
 	Done() Flow

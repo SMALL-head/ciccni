@@ -350,7 +350,7 @@ func (i *Initializer) setupGatewayInterface() error {
 	// 配置ip地址，网关相关信息写入nodeConfig
 	localSubnet := i.nodeConfig.PodCIDR
 	subnetID := localSubnet.IP.Mask(localSubnet.Mask)
-	gwIP := &net.IPNet{IP: ip.NextIP(subnetID), Mask: localSubnet.Mask}
+	gwIP := &net.IPNet{IP: ip.NextIP(subnetID), Mask: i.nodeConfig.ClusterPodCIDR.Mask}
 	gwAddr := &netlink.Addr{IPNet: gwIP, Label: ""}
 	gwMAC := link.Attrs().HardwareAddr
 	i.nodeConfig.Gateway = &Gateway{Name: i.hostGateway, IP: gwIP.IP, MAC: gwMAC}
@@ -379,5 +379,3 @@ func (i *Initializer) setupGatewayInterface() error {
 	}
 	return nil
 }
-
-

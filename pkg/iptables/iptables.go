@@ -75,6 +75,9 @@ func (c *Client) SetUpRules(outInterface string) error {
 
 		// iptables -t nat -A {CICCNIPostRoutingChain} -m mark --mark 0x40/0x40 -j MASQUERADE -m comment --comment 'SNAT'
 		{NATTable, CICCNIPostRoutingChain, []string{"-m", "mark", "--mark", ExternalPkgMark}, MasqueradeTarget, nil, "ciccni: for host gateway"},
+
+		// iptables -t filter -A {CICCNIForwardChain} -m comment --comment 'ciccni: 默认接受' -j ACCEPT
+		{FilterTable, CICCNIForwardChain, nil, AcceptTarget, nil, "ciccni: 默认接受"},
 	}
 
 	// Ensure all the chains involved exist.
