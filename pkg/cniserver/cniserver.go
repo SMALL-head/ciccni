@@ -7,6 +7,7 @@ import (
 	"ciccni/pkg/cniserver/ipam"
 	"ciccni/pkg/openflow"
 	"ciccni/pkg/ovs"
+	"ciccni/pkg/tctools"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,17 +32,17 @@ const (
 
 type CniServer struct {
 	pb.UnimplementedCniServer
-	socketAddr string
-	nodeConfig *agent.NodeConfig
-	defaultMTU int
+	socketAddr         string
+	nodeConfig         *agent.NodeConfig
+	defaultMTU         int
 	hostProcPathPrefix string
-	ovsBridgeClient ovs.OVSBridgeClient
-	ofClient openflow.Client
-	ifaceStore agent.InterfaceStore
-	k8sClient kubernetes.Interface
+	ovsBridgeClient    ovs.OVSBridgeClient
+	ofClient           openflow.Client
+	ifaceStore         agent.InterfaceStore
+	k8sClient          kubernetes.Interface
 }
 
-func New(cniSocket string, 
+func New(cniSocket string,
 	nodeConfig *agent.NodeConfig,
 	defaultMTU int,
 	hostProcPathPrefix string,
@@ -50,14 +51,14 @@ func New(cniSocket string,
 	ifaceStore agent.InterfaceStore,
 	k8sClient kubernetes.Interface) *CniServer {
 	return &CniServer{
-		socketAddr: cniSocket, 
-		nodeConfig: nodeConfig, 
-		defaultMTU: defaultMTU, 
+		socketAddr:         cniSocket,
+		nodeConfig:         nodeConfig,
+		defaultMTU:         defaultMTU,
 		hostProcPathPrefix: hostProcPathPrefix,
-		ovsBridgeClient: ovsBridgeClient,
-		ofClient: ofClient,
-		ifaceStore: ifaceStore,
-		k8sClient: k8sClient,
+		ovsBridgeClient:    ovsBridgeClient,
+		ofClient:           ofClient,
+		ifaceStore:         ifaceStore,
+		k8sClient:          k8sClient,
 	}
 }
 
@@ -69,7 +70,7 @@ func (cniServer *CniServer) Run(stopCh <-chan struct{}) {
 	pb.RegisterCniServer(server, cniServer)
 
 	// 将server连接到unix域套接字
-	_ = os.Remove(cniServer.socketAddr) // 提前删除，防止出现bind error
+	_ = os.Remove(cniServer.socketAddr)                       // 提前删除，防止出现bind error
 	listener, err := net.Listen("unix", cniServer.socketAddr) // 在调用unix域套接字监听时，sock文件会被自动创建
 	klog.Infof("[cniserver.go]-[Run]-在%s上监听rpc服务器socket", cniServer.socketAddr)
 	if err != nil {
@@ -86,8 +87,8 @@ func (cniServer *CniServer) Run(stopCh <-chan struct{}) {
 }
 
 func (cniServer *CniServer) CmdAdd(ctx context.Context, request *pb.CniCmdRequest) (*pb.CniCmdResponse, error) {
-	klog.Infof("[cniserver.go]-[CmdAdd]-接受到rpc请求，ContainerId=%s, Netns=%s, Ifname=%s, Args=%s, Path=%s, NetworkConfiguration=%s", 
-	request.CniArgs.ContainerId, request.CniArgs.Netns, request.CniArgs.Ifname, request.CniArgs.Args, request.CniArgs.Path, request.CniArgs.NetworkConfiguration)
+	klog.Infof("[cniserver.go]-[CmdAdd]-接受到rpc请求，ContainerId=%s, Netns=%s, Ifname=%s, Args=%s, Path=%s, NetworkConfiguration=%s",
+		request.CniArgs.ContainerId, request.CniArgs.Netns, request.CniArgs.Ifname, request.CniArgs.Args, request.CniArgs.Path, request.CniArgs.NetworkConfiguration)
 	cniConfig, response := cniServer.checkReuquestMessage(request)
 	if response != nil {
 		return response, nil
@@ -114,11 +115,11 @@ func (cniServer *CniServer) CmdAdd(ctx context.Context, request *pb.CniCmdReques
 	klog.Infof("[CmdAdd]-configureInterface, netNS= %s", netNS)
 
 	// 容器内网络接口eth0配置ip地址，如果pod为coreDNS，则还需要配置流表规则
-	err = configureInterface(cniServer.ovsBridgeClient, 
+	err = configureInterface(cniServer.ovsBridgeClient,
 		cniServer.ofClient,
-		cniServer.ifaceStore, 
+		cniServer.ifaceStore,
 		cniServer.k8sClient,
-		podName, podNamespace, 
+		podName, podNamespace,
 		cniConfig.ContainerId,
 		netNS,
 		cniConfig.Ifname,
@@ -131,7 +132,7 @@ func (cniServer *CniServer) CmdAdd(ctx context.Context, request *pb.CniCmdReques
 	}
 
 	result.DNS = cniConfig.DNS
-	
+
 	// 封装result
 	var resultBytes bytes.Buffer
 	resultAsCurrent, _ := result.GetAsVersion(cniConfig.CNIVersion) // 不妨假设配置项中的version一定是正确的
@@ -173,6 +174,17 @@ func (cniServer *CniServer) CmdDel(ctx context.Context, request *pb.CniCmdReques
 	}, nil
 }
 
+func (cniServer *CniServer) CmdCheck(ctx context.Context, request *pb.CniCmdRequest) (*pb.CniCmdResponse, error) {
+	klog.Infof("[CmdCheck]-接收到CmdCheck参数: %s", request)
+	_, response := cniServer.checkReuquestMessage(request)
+	if response != nil {
+		return response, nil
+	}
+	return &pb.CniCmdResponse{
+		CniResult: []byte(""),
+	}, nil
+}
+
 // checkRequestMessage 解析request，分出CNIConfig；若解析过程出错，会直接返回一个CniCmdResponse
 func (cniServer *CniServer) checkReuquestMessage(request *pb.CniCmdRequest) (*CNIConfig, *pb.CniCmdResponse) {
 	cniConfig, err := cniServer.loadNetworkConfig(request)
@@ -186,7 +198,7 @@ func (cniServer *CniServer) checkReuquestMessage(request *pb.CniCmdRequest) (*CN
 	if !cniServer.isCNIVersionSupported(cniVersion) {
 		return nil, cniServer.generateCNIErrorResponse(
 			pb.ErrorCode_UNSUPPORTED_FIELD,
-			"unsupprted cniVersion provided: " + cniVersion,
+			"unsupprted cniVersion provided: "+cniVersion,
 		)
 	}
 
@@ -201,7 +213,7 @@ func (cniServer *CniServer) loadNetworkConfig(request *pb.CniCmdRequest) (*CNICo
 	// NetworkConfiguration是一个[]byte，它来自StdinData
 	if err := json.Unmarshal(request.CniArgs.NetworkConfiguration, cniConfig); err != nil {
 		return cniConfig, err
-	} 
+	}
 	cniConfig.k8sArgs = &k8sArgs{}
 	if err := types.LoadArgs(request.CniArgs.Args, cniConfig.k8sArgs); err != nil {
 		return cniConfig, err
@@ -217,7 +229,7 @@ func (cniServer *CniServer) loadNetworkConfig(request *pb.CniCmdRequest) (*CNICo
 func (cniServer *CniServer) generateCNIErrorResponse(cniErrorCode pb.ErrorCode, cniErrorMsg string) *pb.CniCmdResponse {
 	return &pb.CniCmdResponse{
 		Error: &pb.Error{
-			Code: cniErrorCode,
+			Code:    cniErrorCode,
 			Message: cniErrorMsg,
 		},
 	}
@@ -229,7 +241,9 @@ func (cniServer *CniServer) isCNIVersionSupported(cniVersion string) bool {
 }
 
 func (cniServer *CniServer) hostNetNSPath(nsPath string) string {
-	if nsPath == "" { return "" }
+	if nsPath == "" {
+		return ""
+	}
 	klog.Infof("[hostNetNSPath]-cniServer.hostProcPathPrefix = %s", cniServer.hostProcPathPrefix)
 	return cniServer.hostProcPathPrefix + nsPath
 }
@@ -255,7 +269,7 @@ func configureInterface(
 	k8sClient kubernetes.Interface,
 	podName string,
 	podNamespace string,
-	containerID string, 
+	containerID string,
 	containerNetNS string,
 	ifname string,
 	MTU int,
@@ -279,7 +293,12 @@ func configureInterface(
 	defer netns.Close()
 
 	// 2. 创建veth pair
-	hostIface, containerIface, err := setupVethPair(podName, podNamespace, ifname, netns, MTU)
+	tcArgs, err := tctools.ConstructTcConfig(k8sClient, podName, podNamespace)
+	if err != nil {
+		klog.Errorf("[cniserver.go]-[configureInterface]-创建tc配置失败, err=%s", err)
+	}
+	// 注： tcArgs可能为空
+	hostIface, containerIface, err := setupVethPair(podName, podNamespace, ifname, netns, MTU, tcArgs)
 	if err != nil {
 		return err
 	}
@@ -314,12 +333,12 @@ func configureInterface(
 			klog.Errorf("[configueInterface]-无法获取%s的ovs端口", ovsPortName)
 			return err
 		}
-		
+
 		// 如果为coredns，还需要获取coreDNS对应的serviceIP
 
 		// 直接通过client-go获取
 		kubedns, err2 := k8sClient.CoreV1().Services("kube-system").
-		Get(context.TODO(), "kube-dns", metav1.GetOptions{})
+			Get(context.TODO(), "kube-dns", metav1.GetOptions{})
 		if err2 != nil {
 			klog.Errorf("[configureInterface]-无法通过clientset获取kube-dns服务, err = %s", err2)
 		}
@@ -343,7 +362,7 @@ func configureInterface(
 	}
 
 	// 4. 配置ip
-	klog.Infof("[cniserver.go]-[configureInterface]-4. 配置ip",)
+	klog.Infof("[cniserver.go]-[configureInterface]-4. 配置ip")
 	err = configureContainerAddr(netns, containerIface, result)
 	if err != nil {
 		klog.Errorf("[cniserver.go]-[configureInterface]-4. 配置ip出错, err=%s", err)
@@ -370,7 +389,7 @@ func configureInterface(
 }
 
 func removeInterfaces(
-	ovsBridgeClient ovs.OVSBridgeClient, 
+	ovsBridgeClient ovs.OVSBridgeClient,
 	ofCient openflow.Client,
 	podName string,
 	podNamepsace string,
@@ -385,7 +404,7 @@ func removeInterfaces(
 		}
 		klog.Infof("Target netns not specified, not removing veth pair")
 	}
-	interfaceConfig, found  := ifaceStore.GetContainerInterface(podName, podNamepsace)
+	interfaceConfig, found := ifaceStore.GetContainerInterface(podName, podNamepsace)
 	if !found {
 		klog.Errorf("[removeInterfaces]-无法在local cache中找到port, containerID = %s", containerID)
 		return nil
@@ -402,7 +421,6 @@ func removeInterfaces(
 	klog.Infof("[removeInterfaces]-删除ovs port成功, containerID = %s", containerID)
 	return nil
 }
-
 
 // buildContainerConfig 返回interfaceConfig，返回值用于构造网桥端口，同时写入local cache中
 func buildContainerConfig(containerID, podName, podNamespace string, containerIface *types100.Interface, IPs []*types100.IPConfig) *agent.InterfaceConfig {
@@ -433,7 +451,6 @@ func updateResultIfaceConfig(result *types100.Result, defaultV4Gateway net.IP, c
 		//		Gateway   net.IP
 		//	}
 
-		
 		// result.Interfaces[0] is host interface, and result.Interfaces[1] is container interface
 		// 因此这里指定为1，表示该条IPConfig是container interface的
 		ipc.Interface = types100.Int(1)

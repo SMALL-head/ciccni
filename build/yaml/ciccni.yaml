@@ -71,14 +71,18 @@ data:
     # CIDR Range for services in cluster. It's required to support egress network policy, should
     # be set to the same value as the one specified by --service-cluster-ip-range for kube-apiserver.
     #serviceCIDR: 10.96.0.0/12
-  ciccni.conf: |
+  ciccni.conflist: |
     {
-        "cniVersion":"0.3.0",
-        "name": "ciccni",
-        "type": "ciccni",
-        "ipam": {
+      "cniVersion":"0.3.0",
+      "name": "ciccni",
+      "plugins": [
+        {
+          "type": "ciccni",
+          "ipam": {
             "type": "host-local"
+          }
         }
+      ]
     }
 ---
 apiVersion: apps/v1
@@ -119,10 +123,10 @@ spec:
               add:
                 - SYS_MODULE
           volumeMounts:
-            - mountPath: /etc/ciccni/ciccni.conf # 在install_cni脚本中，会把这个config拷贝到下面的那个net.d目录里
+            - mountPath: /etc/ciccni/ciccni.conflist # 在install_cni脚本中，会把这个config拷贝到下面的那个net.d目录里
               name: ciccni-config
               readOnly: true
-              subPath: ciccni.conf
+              subPath: ciccni.conflist
             - mountPath: /host/etc/cni/net.d
               name: host-cni-conf
             - mountPath: /host/opt/cni/bin

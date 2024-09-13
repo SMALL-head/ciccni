@@ -15,6 +15,7 @@ import (
 const (
 	informerDefaultResync time.Duration = 30 * time.Second
 )
+
 func run(opts *Options) error {
 	// 假定在各个机器上已经安装并且成功启动的ovs服务
 	ovsdbConnection, err := ovs.NewOVSDBConnectionUDS("")
@@ -29,7 +30,7 @@ func run(opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("error create ovs bridge: %v", err)
 	}
-	
+
 	stopCh := make(chan struct{})
 
 	clientset, err2 := k8sclient.CreateClient()
@@ -42,7 +43,6 @@ func run(opts *Options) error {
 	ifaceStore := agent.NewInterfaceStore()
 
 	ofClient := openflow.NewClient(opts.config.OVSBridge)
-	
 
 	agentInitialize := agent.NewInitializer(clientset, ovsBridgeClient, ifaceStore, ofClient, opts.config.HostGateway, opts.config.DefaultMTU)
 	err2 = agentInitialize.Initialize()
@@ -56,19 +56,19 @@ func run(opts *Options) error {
 	// default CNISocket = /var/run/ciccni/cni.sock
 	// 启动rpc服务器
 	cniRPCServer := cniserver.New(
-		opts.config.CNISocket, 
+		opts.config.CNISocket,
 		nodeConfig,
-		opts.config.DefaultMTU, 
+		opts.config.DefaultMTU,
 		opts.config.HostProcPathPrefix,
 		ovsBridgeClient,
 		ofClient,
 		ifaceStore,
 		clientset,
-	) 
+	)
 
 	go cniRPCServer.Run(stopCh)
 
-	<- stopCh
+	<-stopCh
 
 	return nil
 }

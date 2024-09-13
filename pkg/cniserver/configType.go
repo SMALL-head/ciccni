@@ -7,7 +7,6 @@ import (
 	"github.com/containernetworking/cni/pkg/types"
 )
 
-
 type NetworkConfig struct {
 	CNIVersion string          `json:"cniVersion,omitempty"`
 	Name       string          `json:"name,omitempty"`

@@ -63,11 +63,14 @@ func (a Action) Request(arg *skel.CmdArgs) error {
 		var resp *pb.CniCmdResponse
 
 		switch a {
-		case ActionAdd: resp, err = client.CmdAdd(ctx, request)
-		case ActionDel: resp, err = client.CmdDel(ctx, request)
-		case ActionCheck: resp, err = client.CmdCheck(ctx, request)
+		case ActionAdd:
+			resp, err = client.CmdAdd(ctx, request)
+		case ActionDel:
+			resp, err = client.CmdDel(ctx, request)
+		case ActionCheck:
+			resp, err = client.CmdCheck(ctx, request)
 		}
-		
+
 		if status.Code(err) == codes.Unimplemented {
 			return &types.Error{
 				Code:    uint(pb.ErrorCode_INCOMPATIBLE_API_VERSION),
@@ -121,7 +124,7 @@ func CmdAdd(arg *skel.CmdArgs) error {
 		// 	logUtils.Log.Errorf("[client.go]-[CmdAdd]-调用rpc请求CmdAdd失败, err=%s", err)
 		// 	return err
 		// }
-		
+
 		if status.Code(err) == codes.Unimplemented {
 			return &types.Error{
 				Code:    uint(pb.ErrorCode_INCOMPATIBLE_API_VERSION),
